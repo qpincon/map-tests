@@ -66,9 +66,9 @@
     }
 
     async function onLoad() {
-      let response = await fetch('http://localhost:8888/licenses.json');
+      let response = await fetch('licenses.json');
       const licences = await response.json();
-      response = await fetch('http://localhost:8888/vessel-lastpositions.json');
+      response = await fetch('vessel-lastpositions.json');
       const vessels = await response.json();
       const bitmap = await getBitmap('#000000');
       map.addImage(`vessel`, bitmap, { sdf: true });
