@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <title>Add a GeoJSON polygon</title>
+  <meta property="og:description" content="Style a polygon with the fill layer type." />
+  <meta charset='utf-8'>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel='stylesheet' href='https://unpkg.com/maplibre-gl@3.3.0/dist/maplibre-gl.css' />
+  <script src='https://unpkg.com/maplibre-gl@3.3.0/dist/maplibre-gl.js'></script>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body,
+    #map {
+      height: 100%;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="map"></div>
+  <script>
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: `https://api.maptiler.com/maps/streets/style.json?key=4L8OKWkQeI6ObibUjol9`,
+      center: [-68.13734351262877, 45.137451890638886],
+      zoom: 2
+    });
+    const colorToBitmap = {};
+    const activityStatusToColor = {};
+    const offscreen = new OffscreenCanvas(6, 12);
+    const offContext = offscreen.getContext('2d');
+    const shipShape = new Path2D('M0,-8L3,0L3,4L0,1L-3,4L-3,0L0,-8');
+
+    function randomColor() {
+      return '#' + (Math.random() * 0xFFFFFF << 0).toString(16);
+    }
+
+    function getOrAddColorFromActivity(activity) {
+      if (activity in activityStatusToColor) {
+        return activityStatusToColor[activity];
+      }
+      const color = randomColor();
+      activityStatusToColor[activity] = color;
+      return color;
+    }
+
+    async function getBitmap(color) {
+      if (color in colorToBitmap) {
+        return colorToBitmap[color];
+      }
+      // render to offscreen
+      offContext.clearRect(0, 0, 6, 12)
+      offContext.setTransform(1, 0, 0, 1, 0, 0);
+      offContext.translate(3, 6); // path has 6px width and 12px height
+      offContext.fillStyle = color;
+      offContext.fill(shipShape);
+      const img = await createImageBitmap(offscreen);
+      colorToBitmap[color] = img;
+      return img;
+    }
+
+    async function onLoad() {
+      let response = await fetch('http://localhost:8888/licenses.json');
+      const licences = await response.json();
+      response = await fetch('http://localhost:8888/vessel-lastpositions.json');
+      const vessels = await response.json();
+      const bitmap = await getBitmap('#000000');
+      map.addImage(`vessel`, bitmap, { sdf: true });
+      map.on('styleimagemissing', (e) => {
+        console.log(e);
+      });
+
+
+      map.on('load', () => {
+        map.addSource('vessels', {
+          'type': 'geojson',
+          'data': vessels,
+        });
+        map.addLayer({
+          'id': 'vessels',
+          'type': 'symbol',
+          'source': 'vessels',
+          'layout': {
+            'icon-allow-overlap': true,
+            'icon-image': 'vessel',
+            // 'icon-image': ['concat', 'vessel-', ['get', 'color']],
+            'icon-rotate': ['get', 'angle'],
+            'icon-overlap': 'cooperative',
+            'icon-size': 1.5,
+          },
+          'paint': {
+            'icon-color': ['get', 'color'],
+            'icon-halo-color': '#FFFFFF',
+            'icon-halo-width': [
+              "case",
+              ['boolean', ['feature-state', 'hover'], false],
+              4,
+              0.0
+            ]
+          }
+        });
+        map.addSource('licences', {
+          'type': 'geojson',
+          'tolerance': 1,
+          'data': licences
+        });
+        map.addLayer({
+          'id': 'licences',
+          'type': 'fill',
+          'source': 'licences',
+          'layout': {},
+          'paint': {
+            'fill-color': '#088',
+            'fill-opacity': 0.8
+          }
+        });
+      });
+      let hoveredStateId = null;
+
+      map.on('mousemove', 'vessels', (e) => {
+        map.getCanvas().style.cursor = 'pointer';
+        if (e.features.length > 0) {
+          if (hoveredStateId) {
+            map.setFeatureState(
+              { source: 'vessels', id: hoveredStateId },
+              { hover: false }
+            );
+          }
+          hoveredStateId = e.features[0].id;
+          map.setFeatureState(
+            { source: 'vessels', id: hoveredStateId },
+            { hover: true }
+          );
+        }
+      });
+
+      // When the mouse leaves the state-fill layer, update the feature state of the
+      // previously hovered feature.
+      map.on('mouseleave', 'vessels', () => {
+        map.getCanvas().style.cursor = '';
+        if (hoveredStateId) {
+          map.setFeatureState(
+            { source: 'vessels', id: hoveredStateId },
+            { hover: false }
+          );
+        }
+        hoveredStateId = null;
+      });
+
+
+    }
+    onLoad();
+
+
+  </script>
+</body>
+
+</html>
