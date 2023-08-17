@@ -70,6 +70,12 @@
       const licences = await response.json();
       response = await fetch('vessel-lastpositions.json');
       const vessels = await response.json();
+      const colors = new Set(vessels.features.map(v => v.properties.color));
+      
+      // for (const color of colors) {
+      //   const bitmap = await getBitmap(color);
+      //   map.addImage(`vessel-${color}`, bitmap);
+      // }
       const bitmap = await getBitmap('#000000');
       map.addImage(`vessel`, bitmap, { sdf: true });
       map.on('styleimagemissing', (e) => {
@@ -91,7 +97,7 @@
             'icon-image': 'vessel',
             // 'icon-image': ['concat', 'vessel-', ['get', 'color']],
             'icon-rotate': ['get', 'angle'],
-            'icon-overlap': 'cooperative',
+            'icon-overlap': 'always',
             'icon-size': 1.5,
           },
           'paint': {
