@@ -23,14 +23,114 @@
 </head>
 
 <body>
+  <div>
+    <input type="checkbox" id="labels" checked>
+    <label for="labels">Show labels</label>
+  </div>
+  <div>
+    <input type="checkbox" id="vessels">
+    <label for="vessels">Show vessels</label>
+  </div>
+  <div>
+    <input type="checkbox" id="licenses">
+    <label for="licenses">Show licenses</label>
+  </div>
+  <div>
+    <input type="checkbox" id="sediments">
+    <label for="sediments">Show seabed sediments</label>
+  </div>
+  <div>
+    <input type="radio" id="light" name="basemap" checked value="light">
+    <label for="light">Light basemap</label>
+    <input type="radio" id="satellite" name="basemap" value="satellite">
+    <label for="satellite">Satellite basemap</label>
+  </div>
   <div id="map"></div>
   <script>
+    function isMapboxURL(url) {
+      return url.indexOf('mapbox:') === 0;
+    }
+
+    function transformMapboxUrl(url, resourceType, accessToken) {
+      if (url.indexOf('/styles/') > -1 && url.indexOf('/styles/') < 15 && url.indexOf('/sprite') === -1) return { url: normalizeStyleURL(url, accessToken) }
+      if (url.indexOf('/sprites/') > -1) return { url: normalizeSpriteURL(url, '', '.json', accessToken) }
+      if (url.indexOf('/fonts/') > -1) return { url: normalizeGlyphsURL(url, accessToken) }
+      if (url.indexOf('/v4/') > -1) return { url: normalizeSourceURL(url, accessToken) }
+      if (resourceType === 'Source') return { url: normalizeSourceURL(url, accessToken) }
+    }
+
+    function parseUrl(url) {
+      const urlRe = /^(\w+):\/\/([^/?]*)(\/[^?]+)?\??(.+)?/;
+      const parts = url.match(urlRe);
+      if (!parts) {
+        throw new Error('Unable to parse URL object');
+      }
+      return {
+        protocol: parts[1],
+        authority: parts[2],
+        path: parts[3] || '/',
+        params: parts[4] ? parts[4].split('&') : []
+      };
+    }
+
+    function formatUrl(urlObject, accessToken) {
+      const apiUrlObject = parseUrl("https://api.mapbox.com");
+      urlObject.protocol = apiUrlObject.protocol;
+      urlObject.authority = apiUrlObject.authority;
+      urlObject.params.push(`access_token=${accessToken}`);
+      const params = urlObject.params.length ? `?${urlObject.params.join('&')}` : '';
+      return `${urlObject.protocol}://${urlObject.authority}${urlObject.path}${params}`;
+    }
+
+    function normalizeStyleURL(url, accessToken) {
+      const urlObject = parseUrl(url);
+      urlObject.path = `/styles/v1${urlObject.path}`;
+      return formatUrl(urlObject, accessToken);
+    }
+
+    function normalizeGlyphsURL(url, accessToken) {
+      const urlObject = parseUrl(url);
+      urlObject.path = `/fonts/v1${urlObject.path}`;
+      return formatUrl(urlObject, accessToken);
+    }
+
+    function normalizeSourceURL(url, accessToken) {
+      const urlObject = parseUrl(url);
+      urlObject.path = `/v4/${urlObject.authority}.json`;
+      urlObject.params.push('secure');
+      return formatUrl(urlObject, accessToken);
+    }
+
+    function normalizeSpriteURL(url, format, extension, accessToken) {
+      const urlObject = parseUrl(url);
+      const path = urlObject.path.split('.')
+      urlObject.path = `/styles/v1${path[0]}/sprite.${path[1]}`;
+      return formatUrl(urlObject, accessToken);
+    }
+
+    const mapboxKey = 'pk.eyJ1IjoicXVlbnRpbi1zcGkiLCJhIjoiY2xua2U1eTAyMGI5aTJxczF4b3Rwb3A3OSJ9.-6a4V4OYf5BEnW8eL7TZ-w';
+    const transformRequest = (url, resourceType) => {
+      if (isMapboxURL(url)) {
+        const finalUrl = transformMapboxUrl(url, resourceType, mapboxKey);
+        return finalUrl;
+      }
+
+      // Do any other transforms you want
+      return { url }
+    }
+
     const map = new maplibregl.Map({
       container: 'map',
-      style: `customlightstyle.json`,
+      // style: 'customlightstyle.json',
+      style: 'mapbox://styles/quentin-spi/clnlho00u003g01pgafe859ke?optimize=true&fresh=true',
       center: [-68.13734351262877, 45.137451890638886],
-      zoom: 2
+      zoom: 2,
+      transformRequest
     });
+
+    let originalStyle;
+    let labelLayers;
+
     function capFirst(string) {
       return string.charAt(0).toUpperCase() + string.slice(1);
     }
@@ -87,9 +187,55 @@
       return img;
     }
 
+    const vesselLayerDefinition = {
+      'id': 'vessels',
+      'type': 'symbol',
+      'source': 'vessels',
+      'layout': {
+        'icon-allow-overlap': true,
+        'icon-image': 'vessel',
+        // 'icon-image': ['concat', 'vessel-', ['get', 'color']],
+        'icon-rotate': ['get', 'angle'],
+        'icon-overlap': 'always',
+        'icon-size': 1.5,
+        'text-field': ['get', 'name'],
+        'text-optional': true,
+        'text-overlap': 'never',
+        'text-size': 11,
+        'text-variable-anchor-offset': ['top', [0, 1], 'bottom', [0, -2], 'left', [1, 0], 'right', [-2, 0]],
+        // 'text-variable-anchor': ['top-left', 'bottom-right',],
+        // 'text-radial-offset': 5,
+        'text-justify': 'auto',
+        'text-transform': 'uppercase',
+      },
+      'paint': {
+        'icon-color': ['get', 'color'],
+        'icon-halo-color': [
+          "case",
+          ['boolean', ['feature-state', 'hover'], false],
+          "#ffffff",
+          "#424242",
+        ],
+        'icon-halo-width': 7,
+        'text-color': '#035785',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1
+      }
+    };
+
+    const licensesLayerDefinition = {
+      'id': 'licenses',
+      'type': 'fill',
+      'source': 'licenses',
+      'layout': {},
+      'paint': {
+        'fill-color': '#088',
+        'fill-opacity': 0.8
+      }
+    };
     async function onLoad() {
       let response = await fetch('licenses.json');
-      const licences = await response.json();
+      const licenses = await response.json();
       response = await fetch('vessel-lastpositions.json');
       const vessels = await response.json();
       vessels.features.forEach(v => (v.properties.name = generateName()));
@@ -105,65 +251,115 @@
         console.log(e);
       });
 
-
       map.on('load', () => {
+
+        map.addSource('sediments', {
+          'type': 'vector',
+          'url': 'mapbox://quentin-spi.bkl1l08y',
+        });
         map.addSource('vessels', {
           'type': 'geojson',
           'data': vessels,
         });
-        map.addLayer({
-          'id': 'vessels',
-          'type': 'symbol',
-          'source': 'vessels',
-          'layout': {
-            'icon-allow-overlap': true,
-            'icon-image': 'vessel',
-            // 'icon-image': ['concat', 'vessel-', ['get', 'color']],
-            'icon-rotate': ['get', 'angle'],
-            'icon-overlap': 'always',
-            'icon-size': 1.5,
-            'text-field': ['get', 'name'],
-            'text-optional': true,
-            'text-overlap': 'never',
-            'text-size': 11,
-            'text-variable-anchor-offset': ['top', [0, 1], 'bottom', [0, -2], 'left', [1, 0], 'right', [-2, 0]],
-            // 'text-variable-anchor': ['top-left', 'bottom-right',],
-            // 'text-radial-offset': 5,
-            'text-justify': 'auto',
-            'text-transform': 'uppercase',
-          },
-          'paint': {
-            'icon-color': ['get', 'color'],
-            'icon-halo-color': [
-              "case",
-              ['boolean', ['feature-state', 'hover'], false],
-              "#ffffff",
-              "#424242",
-            ],
-            'icon-halo-width':7,
-            'text-color': '#035785',
-            'text-halo-color': '#ffffff',
-            'text-halo-width': 1
-          }
-        });
-        map.addSource('licences', {
+        map.addSource('licenses', {
           'type': 'geojson',
-          'tolerance': 1,
-          'data': licences
+          // 'tolerance': 1,
+          'data': licenses
         });
-        // map.addLayer({
-        //   'id': 'licences',
-        //   'type': 'fill',
-        //   'source': 'licences',
-        //   'layout': {},
-        //   'paint': {
-        //     'fill-color': '#088',
-        //     'fill-opacity': 0.8
-        //   }
-        // });
+        map.addSource('satellite-source', {
+          'type': 'raster',
+          "url": 'mapbox://mapbox.satellite'
+        })
+        originalStyle = map.getStyle();
+        labelLayers = originalStyle.layers.filter(x => x.id.includes('label'));
+
+        document.getElementById('labels').addEventListener('click', (e) => {
+          const isChecked = e.target.checked;
+          labelLayers.forEach(layer => {
+            if (isChecked) {
+              map.addLayer(layer)
+            } else {
+              map.removeLayer(layer.id)
+            }
+          });
+        });
+
+        document.getElementById('vessels').addEventListener('click', (e) => {
+          const isChecked = e.target.checked;
+          if (isChecked) map.addLayer(vesselLayerDefinition);
+          else map.removeLayer('vessels');
+        });
+        document.getElementById('licenses').addEventListener('click', (e) => {
+          const isChecked = e.target.checked;
+          if (isChecked) map.addLayer(licensesLayerDefinition);
+          else map.removeLayer('licenses');
+        });
+        document.getElementById('sediments').addEventListener('click', (e) => {
+          const isChecked = e.target.checked;
+          if (isChecked) map.addLayer({
+            "id": "sedim",
+            "type": "fill", 
+            "paint": {
+               "fill-color": [
+                "match", 
+                ["get", "TYPE_VALEU"], 
+                ["NFRoche"], "#ff0000", 
+                ["NFC"], "#732600",
+                ["NFCG"], "#734c00", 
+                ["NFCS"], "#897044", 
+                ["NFCV"], "#898944", 
+                ["NFG"], "#ff5500", 
+                ["NFGC"], "#a83800", 
+                ["NFGS"], "#f5a27a", 
+                ["NFGV"], "#cdcd66", 
+                ["NFS"], "#ffff00", 
+                ["NFSC"], "#f5c866", 
+                ["NFSG"], "#e69800", 
+                ["NFSGV"], "#a8a800", 
+                ["NFSV"], "#70a800", 
+                ["NFSSi"], "#f5ca7a", 
+                ["NFSF"], "#ffebaf",
+                ["NFSFC"], "#d7d79e",
+                ["NFSFV"], "#aaff00",
+                ["NFSFSi"], "#f5f57a", ["NFV"], "#0070ff", ["NEVC"], "#cd6699", ["NFVG"], "#df73ff", ["NFVS"], "#00a884", ["NFVSF"], "#cdf57a", ["NFSi"], "#9ed7c2", ["NFSiA"], "#c8d79e", ["NFASi"], "#448389", ["NFA"], "#004da8", "#ffffff"] }, 
+                "source": "sediments", "source-layer": "sedim" });
+          else map.removeLayer('sedim');
+        });
+        document.querySelectorAll('input[name="basemap"]').forEach(radio => {
+          radio.addEventListener('change', (e) => {
+            const basemap = e.target.value;
+            if (basemap === 'light') {
+              if (map.getLayer('satellite')) map.removeLayer('satellite');
+              const firstLayer = map.getStyle().layers?.[0];
+              originalStyle.layers.forEach(layer => {
+                map.addLayer(layer, firstLayer?.id);
+              });
+            } else {
+              originalStyle.layers.forEach(layer => {
+                map.removeLayer(layer.id);
+              });
+              const firstLayer = map.getStyle().layers?.[0];
+              map.addLayer({
+                'id': 'satellite',
+                'type': 'raster',
+                'source': 'satellite-source',
+                'minzoom': 0,
+                'maxzoom': 22
+              }, firstLayer?.id);
+            }
+            console.log(originalStyle);
+          })
+        });
+
       });
       let hoveredStateId = null;
+      map.on('click', 'sedim', (e) => {
+        new maplibregl.Popup()
+          .setLngLat(e.lngLat)
+          .setHTML(e.features[0].properties.TYPE_VALEU)
+          .addTo(map);
 
+      });
       map.on('mousemove', 'vessels', (e) => {
         map.getCanvas().style.cursor = 'pointer';
         if (e.features.length > 0) {
