@@ -8,6 +8,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel='stylesheet' href='https://unpkg.com/maplibre-gl@3.3.0/dist/maplibre-gl.css' />
   <script src='https://unpkg.com/maplibre-gl@3.3.0/dist/maplibre-gl.js'></script>
+  <script src='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js'></script>
+  <link rel='stylesheet' href='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.css' type='text/css' />
   <style>
     body {
       margin: 0;
@@ -251,7 +253,28 @@
         console.log(e);
       });
 
+      const draw = new MapboxDraw();
+
+      // Map#addControl takes an optional second argument to set the position of the control.
+      // If no position is specified the control defaults to `top-right`. See the docs
+      // for more details: https://docs.mapbox.com/mapbox-gl-js/api/#map#addcontrol
+
+      const originalOnAdd = draw.onAdd.bind(draw);
+      draw.onAdd = (map) => {
+        const controlContainer = originalOnAdd(map);
+        controlContainer.classList.add('maplibregl-ctrl', 'maplibregl-ctrl-group');
+        return controlContainer;
+      };
+      map.addControl(draw, 'top-left');
+
       map.on('load', () => {
+        map.getCanvas().className = 'mapboxgl-canvas maplibregl-canvas';
+        map.getContainer().classList.add('mapboxgl-map');
+        const canvasContainer = map.getCanvasContainer();
+        canvasContainer.classList.add('mapboxgl-canvas-container');
+        if (canvasContainer.classList.contains('maplibregl-interactive')) {
+          canvasContainer.classList.add('mapboxgl-interactive');
+        }
 
         map.addSource('sediments', {
           'type': 'vector',
@@ -390,6 +413,16 @@
         hoveredStateId = null;
       });
 
+      // DRAW
+      map.on('click', 'licenses', (e) => {
+        const features = map.queryRenderedFeatures(e.point);
+        console.log(features);
+        const added = draw.add(features[0]);
+      });
+
+      map.on('draw.selectionchange', function (e) {
+        console.log(e.features);
+      });
 
     }
     onLoad();
