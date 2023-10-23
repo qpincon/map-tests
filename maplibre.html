@@ -2,14 +2,18 @@
 <html lang="en">
 
 <head>
-  <title>Add a GeoJSON polygon</title>
+  <title>SpinPOC</title>
   <meta property="og:description" content="Style a polygon with the fill layer type." />
   <meta charset='utf-8'>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- <script src='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js'></script> -->
+  <!-- <link href='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css' rel='stylesheet' /> -->
   <link rel='stylesheet' href='https://unpkg.com/maplibre-gl@3.3.0/dist/maplibre-gl.css' />
   <script src='https://unpkg.com/maplibre-gl@3.3.0/dist/maplibre-gl.js'></script>
   <script src='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js'></script>
-  <link rel='stylesheet' href='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.css' type='text/css' />
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+  <link rel='stylesheet' href='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.css'
+    type='text/css' />
   <style>
     body {
       margin: 0;
@@ -20,6 +24,12 @@
     body,
     #map {
       height: 100%;
+    }
+    #info {
+      position: absolute;
+      bottom: 3rem;
+      right: 3rem;
+      background: #fff;
     }
   </style>
 </head>
@@ -48,6 +58,7 @@
     <label for="satellite">Satellite basemap</label>
   </div>
   <div id="map"></div>
+  <div id="info"></div>
   <script>
     function isMapboxURL(url) {
       return url.indexOf('mapbox:') === 0;
@@ -121,6 +132,8 @@
       return { url }
     }
 
+    // mapboxgl.accessToken = 'pk.eyJ1IjoicXVlbnRpbi1zcGkiLCJhIjoiY2xua2U1eTAyMGI5aTJxczF4b3Rwb3A3OSJ9.-6a4V4OYf5BEnW8eL7TZ-w';
+    // const map = new mapboxgl.Map({
     const map = new maplibregl.Map({
       container: 'map',
       // style: 'customlightstyle.json',
@@ -188,23 +201,32 @@
       colorToBitmap[color] = img;
       return img;
     }
-
+    const realVesselDefinition = {
+      'id': 'realVessels',
+      'type': 'fill',
+      'source': 'realVessels',
+      "minzoom": 15,
+      'paint': {
+        'fill-color': ['get', 'color']
+      }
+    };
     const vesselLayerDefinition = {
       'id': 'vessels',
       'type': 'symbol',
       'source': 'vessels',
+      "maxzoom": 15,
       'layout': {
         'icon-allow-overlap': true,
         'icon-image': 'vessel',
         // 'icon-image': ['concat', 'vessel-', ['get', 'color']],
         'icon-rotate': ['get', 'angle'],
         'icon-overlap': 'always',
+        'text-overlap': 'never',
+        'text-variable-anchor-offset': ['top', [0, 1], 'bottom', [0, -2], 'left', [1, 0], 'right', [-2, 0]],
         'icon-size': 1.5,
         'text-field': ['get', 'name'],
         'text-optional': true,
-        'text-overlap': 'never',
         'text-size': 11,
-        'text-variable-anchor-offset': ['top', [0, 1], 'bottom', [0, -2], 'left', [1, 0], 'right', [-2, 0]],
         // 'text-variable-anchor': ['top-left', 'bottom-right',],
         // 'text-radial-offset': 5,
         'text-justify': 'auto',
@@ -321,31 +343,33 @@
           const isChecked = e.target.checked;
           if (isChecked) map.addLayer({
             "id": "sedim",
-            "type": "fill", 
+            "type": "fill",
             "paint": {
-               "fill-color": [
-                "match", 
-                ["get", "TYPE_VALEU"], 
-                ["NFRoche"], "#ff0000", 
+              "fill-color": [
+                "match",
+                ["get", "TYPE_VALEU"],
+                ["NFRoche"], "#ff0000",
                 ["NFC"], "#732600",
-                ["NFCG"], "#734c00", 
-                ["NFCS"], "#897044", 
-                ["NFCV"], "#898944", 
-                ["NFG"], "#ff5500", 
-                ["NFGC"], "#a83800", 
-                ["NFGS"], "#f5a27a", 
-                ["NFGV"], "#cdcd66", 
-                ["NFS"], "#ffff00", 
-                ["NFSC"], "#f5c866", 
-                ["NFSG"], "#e69800", 
-                ["NFSGV"], "#a8a800", 
-                ["NFSV"], "#70a800", 
-                ["NFSSi"], "#f5ca7a", 
+                ["NFCG"], "#734c00",
+                ["NFCS"], "#897044",
+                ["NFCV"], "#898944",
+                ["NFG"], "#ff5500",
+                ["NFGC"], "#a83800",
+                ["NFGS"], "#f5a27a",
+                ["NFGV"], "#cdcd66",
+                ["NFS"], "#ffff00",
+                ["NFSC"], "#f5c866",
+                ["NFSG"], "#e69800",
+                ["NFSGV"], "#a8a800",
+                ["NFSV"], "#70a800",
+                ["NFSSi"], "#f5ca7a",
                 ["NFSF"], "#ffebaf",
                 ["NFSFC"], "#d7d79e",
                 ["NFSFV"], "#aaff00",
-                ["NFSFSi"], "#f5f57a", ["NFV"], "#0070ff", ["NEVC"], "#cd6699", ["NFVG"], "#df73ff", ["NFVS"], "#00a884", ["NFVSF"], "#cdf57a", ["NFSi"], "#9ed7c2", ["NFSiA"], "#c8d79e", ["NFASi"], "#448389", ["NFA"], "#004da8", "#ffffff"] }, 
-                "source": "sediments", "source-layer": "sedim" });
+                ["NFSFSi"], "#f5f57a", ["NFV"], "#0070ff", ["NEVC"], "#cd6699", ["NFVG"], "#df73ff", ["NFVS"], "#00a884", ["NFVSF"], "#cdf57a", ["NFSi"], "#9ed7c2", ["NFSiA"], "#c8d79e", ["NFASi"], "#448389", ["NFA"], "#004da8", "#ffffff"]
+            },
+            "source": "sediments", "source-layer": "sedim"
+          });
           else map.removeLayer('sedim');
         });
         document.querySelectorAll('input[name="basemap"]').forEach(radio => {
@@ -382,6 +406,9 @@
           .setHTML(e.features[0].properties.TYPE_VALEU)
           .addTo(map);
 
+      });
+      map.on('mousemove', (e) => {
+        document.getElementById('info').innerHTML = JSON.stringify(e.lngLat.wrap());
       });
       map.on('mousemove', 'vessels', (e) => {
         map.getCanvas().style.cursor = 'pointer';
@@ -424,7 +451,105 @@
         console.log(e.features);
       });
 
+      // Because features come from tiled vector data,
+      // feature geometries may be split
+      // or duplicated across tile boundaries.
+      // As a result, features may appear
+      // multiple times in query results.
+      function getUniqueFeatures(features) {
+        const uniqueIds = new Set();
+        const uniqueFeatures = [];
+        for (const feature of features) {
+          const id = feature.id;
+          if (!uniqueIds.has(id)) {
+            uniqueIds.add(id);
+            uniqueFeatures.push(feature);
+          }
+        }
+        return uniqueFeatures;
+      }
+
+      function getRandomInt(min, max) {
+          min = Math.ceil(min);
+          max = Math.floor(max);
+          return Math.floor(Math.random() * (max - min + 1)) + min;
+      }
+
+      function getRandomVesselShape(vesselDef) {
+        const [lat, lng] = vesselDef.geometry.coordinates;
+        const oneDegreeLngKm = 10000 / 90;
+        const oneDegreeLatKm = oneDegreeLngKm * Math.cfos(lng);
+        const widthMeters = getRandomInt(5, 50);
+        const lengthMeters = getRandomInt(20, 300);
+
+        const left = lat - ((widthMeters / 1000) / oneDegreeLatKm) / 2;
+        const right = lat + ((widthMeters / 1000) / oneDegreeLatKm) / 2;
+        const top = lng + ((lengthMeters / 1000) / oneDegreeLngKm) / 2;
+        const bot = lng - ((lengthMeters / 1000) / oneDegreeLngKm) / 2;
+        const shape = [
+          [right, bot],
+          [left,  bot],
+          [left,  top],
+          [lat,  top + ((getRandomInt(15, 20) / 1000) / oneDegreeLngKm) / 2],
+          [right, top],
+          [right, bot],
+        ];
+        console.log(vesselDef);
+        const feature = turf.transformRotate({
+          "type": "Feature",
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [shape]
+          },
+          "properties": {
+            "color": vesselDef.properties.color
+          },
+          "id": vesselDef.id
+        }, vesselDef.properties.angle, {mutate: true, pivot: [lat, lng]});
+        console.log(feature);
+        return feature;
+      }
+
+      const realVesselsGeom = {
+        type: 'FeatureCollection',
+        features: []
+      };
+      map.addSource('realVessels', { type: 'geojson', data: realVesselsGeom });
+      map.on('zoom', e => {
+        const zoom = map.getZoom();
+        if (zoom > 15) {
+          console.log('zoom high enough');
+          const visibleVessels = map.querySourceFeatures('vessels');
+          console.log(visibleVessels);
+          if (visibleVessels.length > 0) {
+            const uniqueVessels = getUniqueFeatures(visibleVessels);
+            console.log('uniquevessel', uniqueVessels);
+            uniqueVessels.forEach(v => {
+              const exists = realVesselsGeom.features.find(x => x.id === v.id);
+              if (exists) return;
+              const shape = getRandomVesselShape(v);
+              realVesselsGeom.features.push(shape);
+            });
+            map.getSource('realVessels').setData(realVesselsGeom);
+            console.log(realVesselsGeom)
+          }
+          if (!map.getLayer(realVesselDefinition.id)) {
+            console.log('adding real vessel alyer')
+            // map.removeLayer('vessels');
+            map.addLayer(realVesselDefinition);
+          }
+        }
+        else {
+          if (!map.getLayer('vessels')) {
+            // map.addLayer(vesselLayerDefinition);
+            // map.removeLayer(realVesselDefinition.id);
+          }
+        }
+      });
+
     }
+
+
     onLoad();
 
 
