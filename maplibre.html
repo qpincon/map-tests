@@ -205,13 +205,35 @@
       colorToBitmap[color] = img;
       return img;
     }
-    const realVesselDefinition = {
+    const realVesselGeomLayerDefinition = {
       'id': 'realVessels',
       'type': 'fill',
       'source': 'realVessels',
       "minzoom": 15,
       'paint': {
-        'fill-color': ['get', 'color']
+        'fill-color': ['get', 'color'],
+        'fill-outline-color': '#000'
+      }
+    };
+    const realVesselLabelsLayerDefinition = {
+      'id': 'realVesselsLabels',
+      'type': 'symbol',
+      'source': 'realVessels',
+      "minzoom": 15,
+      'layout': {
+        'text-field': ['get', 'name'],
+        'icon-allow-overlap': true,
+        // 'text-optional': true,
+        // 'text-overlap': 'never',
+        'text-size': 11,
+        'text-justify': 'auto',
+        'text-transform': 'uppercase',
+        'text-padding': 10,
+      },
+      'paint': {
+        'text-color': '#035785',
+        'text-halo-color': '#ffffff',
+        'text-halo-width': 1
       }
     };
     const vesselLayerDefinition = {
@@ -524,9 +546,7 @@
             "type": "Polygon",
             "coordinates": [shape]
           },
-          "properties": {
-            "color": vesselDef.properties.color
-          },
+          "properties": vesselDef.properties,
           "id": vesselDef.id
         }, vesselDef.properties.angle ?? 0, {mutate: true, pivot: [lat, lng]});
         return feature;
@@ -551,10 +571,11 @@
             });
             map.getSource('realVessels').setData(realVesselsGeom);
           }
-          if (!map.getLayer(realVesselDefinition.id)) {
+          if (!map.getLayer(realVesselGeomLayerDefinition.id)) {
             console.log('adding real vessel alyer')
             // map.removeLayer('vessels');
-            map.addLayer(realVesselDefinition);
+            map.addLayer(realVesselGeomLayerDefinition);
+            map.addLayer(realVesselLabelsLayerDefinition);
           }
         }
         else {
