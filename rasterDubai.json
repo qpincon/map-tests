@@ -1,0 +1,34 @@
+{
+    "bounds": [
+        54.420200000286506,
+        24.823544148566967,
+        55.040594988692014,
+        25.326199999871545
+    ],
+    "center": [
+        54.73039749448926,
+        25.074872074219257,
+        0
+    ],
+    "created": 1697647275222,
+    "created_by_client": "studio",
+    "filesize": 55142883,
+    "fillzoom": 13,
+    "format": "webp",
+    "id": "quentin-spi.dz7yje14",
+    "mapbox_logo": true,
+    "maxzoom": 14,
+    "minzoom": 0,
+    "modified": 1697647275007,
+    "name": "ldpl-hys-mercator-7s0lz5",
+    "private": true,
+    "scheme": "xyz",
+    "tilejson": "2.2.0",
+    "tiles": [
+        "https://a.tiles.mapbox.com/v4/quentin-spi.dz7yje14/{z}/{x}/{y}.png?access_token=pk.eyJ1IjoicXVlbnRpbi1zcGkiLCJhIjoiY2xua2U1eTAyMGI5aTJxczF4b3Rwb3A3OSJ9.-6a4V4OYf5BEnW8eL7TZ-w",
+        "https://b.tiles.mapbox.com/v4/quentin-spi.dz7yje14/{z}/{x}/{y}.png?access_token=pk.eyJ1IjoicXVlbnRpbi1zcGkiLCJhIjoiY2xua2U1eTAyMGI5aTJxczF4b3Rwb3A3OSJ9.-6a4V4OYf5BEnW8eL7TZ-w"
+    ],
+    "upload_id": "clnvzcbep4t4w2np6fezeoma7",
+    "version": "1.0.0",
+    "webpage": "https://dev-studio.tilestream.net/tilesets/quentin-spi.dz7yje14"
+}

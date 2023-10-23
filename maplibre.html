@@ -52,6 +52,10 @@
     <label for="sediments">Show seabed sediments</label>
   </div>
   <div>
+    <input type="checkbox" id="custom-raster">
+    <label for="custom-raster">Show Dubaï custom raster</label>
+  </div>
+  <div>
     <input type="radio" id="light" name="basemap" checked value="light">
     <label for="light">Light basemap</label>
     <input type="radio" id="satellite" name="basemap" value="satellite">
@@ -231,6 +235,7 @@
         // 'text-radial-offset': 5,
         'text-justify': 'auto',
         'text-transform': 'uppercase',
+        'text-padding': 10,
       },
       'paint': {
         'icon-color': ['get', 'color'],
@@ -257,11 +262,15 @@
         'fill-opacity': 0.8
       }
     };
+
+    
     async function onLoad() {
       let response = await fetch('licenses.json');
       const licenses = await response.json();
       response = await fetch('vessel-lastpositions.json');
       const vessels = await response.json();
+      response = await fetch('rasterDubai.json');
+      const rasterDubaiDef = await response.json();
       vessels.features.forEach(v => (v.properties.name = generateName()));
       const colors = new Set(vessels.features.map(v => v.properties.color));
 
@@ -314,7 +323,11 @@
         map.addSource('satellite-source', {
           'type': 'raster',
           "url": 'mapbox://mapbox.satellite'
-        })
+        });
+        map.addSource('custom-raster', {
+          'type': 'raster',
+          ...rasterDubaiDef
+        });
         originalStyle = map.getStyle();
         labelLayers = originalStyle.layers.filter(x => x.id.includes('label'));
 
@@ -338,6 +351,17 @@
           const isChecked = e.target.checked;
           if (isChecked) map.addLayer(licensesLayerDefinition);
           else map.removeLayer('licenses');
+        });
+        document.getElementById('custom-raster').addEventListener('click', (e) => {
+          const isChecked = e.target.checked;
+          if (isChecked) {
+            map.addLayer({
+                'id': 'custom-raster',
+                'source': 'custom-raster',
+                'type': 'raster',
+              });
+          }
+          else map.removeLayer('custom-raster');
         });
         document.getElementById('sediments').addEventListener('click', (e) => {
           const isChecked = e.target.checked;
@@ -477,15 +501,15 @@
 
       function getRandomVesselShape(vesselDef) {
         const [lat, lng] = vesselDef.geometry.coordinates;
-        const oneDegreeLngKm = 10000 / 90;
-        const oneDegreeLatKm = oneDegreeLngKm * Math.cfos(lng);
+        const oneDegreeLatKm = 111.32;
+        const oneDegreeLngKm = 40075 * Math.cos(lng * (Math.PI / 180)) / 360 ;
         const widthMeters = getRandomInt(5, 50);
         const lengthMeters = getRandomInt(20, 300);
 
-        const left = lat - ((widthMeters / 1000) / oneDegreeLatKm) / 2;
-        const right = lat + ((widthMeters / 1000) / oneDegreeLatKm) / 2;
-        const top = lng + ((lengthMeters / 1000) / oneDegreeLngKm) / 2;
-        const bot = lng - ((lengthMeters / 1000) / oneDegreeLngKm) / 2;
+        const left = lat - ((widthMeters / 1000) / oneDegreeLngKm) / 2;
+        const right = lat + ((widthMeters / 1000) / oneDegreeLngKm) / 2;
+        const top = lng + ((lengthMeters / 1000) / oneDegreeLatKm) / 2;
+        const bot = lng - ((lengthMeters / 1000) / oneDegreeLatKm) / 2;
         const shape = [
           [right, bot],
           [left,  bot],
@@ -494,7 +518,6 @@
           [right, top],
           [right, bot],
         ];
-        console.log(vesselDef);
         const feature = turf.transformRotate({
           "type": "Feature",
           "geometry": {
@@ -505,8 +528,7 @@
             "color": vesselDef.properties.color
           },
           "id": vesselDef.id
-        }, vesselDef.properties.angle, {mutate: true, pivot: [lat, lng]});
-        console.log(feature);
+        }, vesselDef.properties.angle ?? 0, {mutate: true, pivot: [lat, lng]});
         return feature;
       }
 
@@ -518,12 +540,9 @@
       map.on('zoom', e => {
         const zoom = map.getZoom();
         if (zoom > 15) {
-          console.log('zoom high enough');
           const visibleVessels = map.querySourceFeatures('vessels');
-          console.log(visibleVessels);
           if (visibleVessels.length > 0) {
             const uniqueVessels = getUniqueFeatures(visibleVessels);
-            console.log('uniquevessel', uniqueVessels);
             uniqueVessels.forEach(v => {
               const exists = realVesselsGeom.features.find(x => x.id === v.id);
               if (exists) return;
@@ -531,7 +550,6 @@
               realVesselsGeom.features.push(shape);
             });
             map.getSource('realVessels').setData(realVesselsGeom);
-            console.log(realVesselsGeom)
           }
           if (!map.getLayer(realVesselDefinition.id)) {
             console.log('adding real vessel alyer')
