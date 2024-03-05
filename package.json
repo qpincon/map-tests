@@ -13,6 +13,7 @@
     "css-loader": "^6.8.1",
     "leaflet": "^1.9.4",
     "style-loader": "^3.3.3",
+    "weatherlayers-gl": "^2024.1.0",
     "webpack": "^5.88.2",
     "webpack-cli": "^5.1.4"
   }

@@ -12,6 +12,8 @@
   <script src='https://unpkg.com/maplibre-gl@3.3.0/dist/maplibre-gl.js'></script>
   <script src='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js'></script>
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,100,1,200"
+    rel="stylesheet" />
   <link rel='stylesheet' href='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.css'
     type='text/css' />
   <style>
@@ -25,6 +27,7 @@
     #map {
       height: 100%;
     }
+
     #info {
       position: absolute;
       bottom: 3rem;
@@ -35,6 +38,10 @@
 </head>
 
 <body>
+  <span class="material-symbols-outlined">favorite</span>
+  <!-- <svg id="testsvg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 80">
+    <text x="0" y="24" font-family="Material Symbols Outlined" font-size="24px"  >favorite</text>
+  </svg> -->
   <div>
     <input type="checkbox" id="labels" checked>
     <label for="labels">Show labels</label>
@@ -170,6 +177,8 @@
     const offscreen = new OffscreenCanvas(8, 14);
     const offContext = offscreen.getContext('2d');
     const shipShape = new Path2D('M0,-8L3,0L3,4L0,1L-3,4L-3,0L0,-8');
+    // TODO: instead define in a separate full SVG, and transform to canvas. Use tosdf.html to create SDF
+    const shipShapeSmall = new Path2D('M0-2 1-1 1 0 0-1-1 0-1-1 0-2');
 
     function randomColor() {
       return '#' + (Math.random() * 0xFFFFFF << 0).toString(16);
@@ -243,6 +252,12 @@
       "maxzoom": 15,
       'layout': {
         'icon-allow-overlap': true,
+        // 'icon-image':  [
+        //   'step',
+        //   ["zoom"],
+        //   'crosswalk-small',
+        //   6, 'us-highway-business-3'
+        // ],
         'icon-image': 'vessel',
         // 'icon-image': ['concat', 'vessel-', ['get', 'color']],
         'icon-rotate': ['get', 'angle'],
@@ -285,7 +300,7 @@
       }
     };
 
-    
+
     async function onLoad() {
       let response = await fetch('licenses.json');
       const licenses = await response.json();
@@ -366,7 +381,14 @@
 
         document.getElementById('vessels').addEventListener('click', (e) => {
           const isChecked = e.target.checked;
-          if (isChecked) map.addLayer(vesselLayerDefinition);
+          if (isChecked) {
+            map.addLayer(vesselLayerDefinition);
+            // setInterval(() => {
+            //   const idsToFilter = Array.from({ length: 1000 }, () => Math.floor(Math.random() * vessels.features.length));
+            //   console.log('filtering', idsToFilter.length, 'vessels', idsToFilter);
+            //   map.setFilter(vesselLayerDefinition.id, ['in', ['id'], ["literal", idsToFilter]]);
+            // }, 2000);
+          }
           else map.removeLayer('vessels');
         });
         document.getElementById('licenses').addEventListener('click', (e) => {
@@ -378,10 +400,10 @@
           const isChecked = e.target.checked;
           if (isChecked) {
             map.addLayer({
-                'id': 'custom-raster',
-                'source': 'custom-raster',
-                'type': 'raster',
-              });
+              'id': 'custom-raster',
+              'source': 'custom-raster',
+              'type': 'raster',
+            });
           }
           else map.removeLayer('custom-raster');
         });
@@ -516,15 +538,15 @@
       }
 
       function getRandomInt(min, max) {
-          min = Math.ceil(min);
-          max = Math.floor(max);
-          return Math.floor(Math.random() * (max - min + 1)) + min;
+        min = Math.ceil(min);
+        max = Math.floor(max);
+        return Math.floor(Math.random() * (max - min + 1)) + min;
       }
 
       function getRandomVesselShape(vesselDef) {
         const [lat, lng] = vesselDef.geometry.coordinates;
         const oneDegreeLatKm = 111.32;
-        const oneDegreeLngKm = 40075 * Math.cos(lng * (Math.PI / 180)) / 360 ;
+        const oneDegreeLngKm = 40075 * Math.cos(lng * (Math.PI / 180)) / 360;
         const widthMeters = getRandomInt(5, 50);
         const lengthMeters = getRandomInt(20, 300);
 
@@ -534,9 +556,9 @@
         const bot = lng - ((lengthMeters / 1000) / oneDegreeLatKm) / 2;
         const shape = [
           [right, bot],
-          [left,  bot],
-          [left,  top],
-          [lat,  top + ((getRandomInt(15, 20) / 1000) / oneDegreeLngKm) / 2],
+          [left, bot],
+          [left, top],
+          [lat, top + ((getRandomInt(15, 20) / 1000) / oneDegreeLngKm) / 2],
           [right, top],
           [right, bot],
         ];
@@ -548,7 +570,7 @@
           },
           "properties": vesselDef.properties,
           "id": vesselDef.id
-        }, vesselDef.properties.angle ?? 0, {mutate: true, pivot: [lat, lng]});
+        }, vesselDef.properties.angle ?? 0, { mutate: true, pivot: [lat, lng] });
         return feature;
       }
 
@@ -591,7 +613,35 @@
 
     onLoad();
 
+    // function svgToCanvas(svgElement) {
+    
+    //   const canvas = document.createElement('canvas');
+    //   document.body.append(canvas);
+    //   const svgStr = svgElement.outerHTML;
+    //   let blob = new Blob([svgStr], {type: 'image/svg+xml'});
+    //   let url = URL.createObjectURL(blob);
+    //   console.log(url);
 
+    //   const ctx = canvas.getContext('2d');
+    //   canvas.width = 900;
+    //   canvas.height = 1400;
+
+    //   const img = new Image();
+    //   img.onload = () => ctx.drawImage(img, 54, 387, 792, 960);
+    //   img.src = url;
+    // }
+
+    /**  The goal with this is to be able to ultimately generate sdf or raster icons from material icons */
+      function customFontItemToCanvas() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 300;
+        canvas.height = 200;
+        document.body.append(canvas);
+        const ctx = canvas.getContext('2d');
+        ctx.font         = '48px Material Symbols Outlined';
+        ctx.fillText  ('favorite', 0, 40);
+      }
+      customFontItemToCanvas();
   </script>
 </body>
 
