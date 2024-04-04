@@ -2,7 +2,6 @@ import L from 'leaflet';
 import './smoothscroll';
 import 'leaflet/dist/leaflet.css';
 import licenses from './licenses.json';
-
 /* This code is needed to properly load the images in the Leaflet CSS */
 delete L.Icon.Default.prototype._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -11,7 +10,6 @@ L.Icon.Default.mergeOptions({
   shadowUrl: require('leaflet/dist/images/marker-shadow.png'),
 });
 
-const geojson = licenses.data.map(l => l.geometry);
 const map = L.map('map', {
   preferCanvas: true,
   scrollWheelZoom: false, // disable original zoom function
@@ -29,4 +27,4 @@ map.setView(defaultCenter, defaultZoom);
 
 basemap.addTo(map);
 // marker.addTo(map);
-L.geoJSON(geojson).addTo(map);
+L.geoJSON(licenses).addTo(map);

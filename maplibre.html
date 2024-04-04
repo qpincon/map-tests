@@ -8,13 +8,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <!-- <script src='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.js'></script> -->
   <!-- <link href='https://api.mapbox.com/mapbox-gl-js/v2.14.1/mapbox-gl.css' rel='stylesheet' /> -->
-  <link rel='stylesheet' href='https://unpkg.com/maplibre-gl@3.3.0/dist/maplibre-gl.css' />
-  <script src='https://unpkg.com/maplibre-gl@3.3.0/dist/maplibre-gl.js'></script>
-  <script src='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js'></script>
-  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,100,1,200"
-    rel="stylesheet" />
-  <link rel='stylesheet' href='https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.css'
+  <link rel='stylesheet' href='libs/maplibre-gl.css' />
+  <script src='libs/maplibre-gl.js'></script>
+  <script src='libs/mapbox-gl-draw.js'></script>
+  <script src="libs/turf.min.js"></script>
+  <!-- <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,100,1,200" rel="stylesheet" /> -->
+  <link rel='stylesheet' href='libs/mapbox-gl-draw.css'
     type='text/css' />
   <style>
     body {
@@ -71,6 +70,137 @@
   <div id="map"></div>
   <div id="info"></div>
   <script>
+
+
+    function svgToSdfCanvas(svgString) {
+
+      var INF = 1e20;
+      // 1D squared distance transform
+      function edt1d(grid, offset, stride, length, f, v, z) {
+        v[0] = 0;
+        z[0] = -INF;
+        z[1] = INF;
+        f[0] = grid[offset];
+
+        for (let q = 1, k = 0, s = 0; q < length; q++) {
+          f[q] = grid[offset + q * stride];
+          const q2 = q * q;
+          do {
+            const r = v[k];
+            s = (f[q] - f[r] + q2 - r * r) / (q - r) / 2;
+          } while (s <= z[k] && --k > -1);
+
+          k++;
+          v[k] = q;
+          z[k] = s;
+          z[k + 1] = INF;
+        }
+
+        for (let q = 0, k = 0; q < length; q++) {
+          while (z[k + 1] < q) k++;
+          const r = v[k];
+          const qr = q - r;
+          grid[offset + q * stride] = f[r] + qr * qr;
+        }
+      }
+
+      // 2D Euclidean squared distance transform by Felzenszwalb & Huttenlocher https://cs.brown.edu/~pff/papers/dt-final.pdf
+      function edt(data, x0, y0, width, height, gridSize, f, v, z) {
+        for (let x = x0; x < x0 + width; x++) edt1d(data, y0 * gridSize + x, gridSize, height, f, v, z);
+        for (let y = y0; y < y0 + height; y++) edt1d(data, y * gridSize + x0, 1, width, f, v, z);
+      }
+
+      const domParser = new DOMParser();
+      var buffer = 12, radius = 8, cutoff = .25;
+      var svg = document.createElement('img');
+      const svgElem = domParser.parseFromString(svgString, 'application/xml').firstChild;
+      const vb = svgElem.viewBox?.baseVal;
+      const baseWidth = 800;
+      let glyphWidth = parseInt(svgElem.getAttribute('width'));
+      let glyphHeight = parseInt(svgElem.getAttribute('height'));
+      if (!glyphWidth && !glyphWidth && vb) {
+        const ratio =  vb.height / vb.width;
+        glyphWidth = baseWidth;
+        glyphHeight = baseWidth * ratio;
+        svgElem.setAttribute('width', glyphWidth);
+        svgElem.setAttribute('height', glyphHeight);
+      }
+      const promise = new Promise((resolve, reject) => {
+
+        svg.onload = function () {
+          var width = glyphWidth + 2 * buffer;
+          var height = glyphHeight + 2 * buffer;
+          var len = Math.max(width * height, 0);
+          var data = new Uint8ClampedArray(len);
+          var canvas = document.createElement('canvas');
+          canvas.width = glyphWidth;
+          canvas.height = glyphHeight;
+          var ctx = canvas.getContext('2d');
+          var gridOuter = new Float64Array(len);
+          var gridInner = new Float64Array(len);
+          var size = Math.max(width, height);
+          var f = new Float64Array(size);
+          var z = new Float64Array(size + 1);
+          var v = new Uint16Array(size);
+          ctx.drawImage(svg, 0, 0);
+          var imgData = ctx.getImageData(0, 0, glyphWidth, glyphHeight);
+          gridOuter.fill(INF, 0, len);
+          gridInner.fill(0, 0, len);
+          for (var y = 0; y < glyphHeight; y++) {
+            for (var x = 0; x < glyphWidth; x++) {
+              var a = imgData.data[4 * (y * glyphWidth + x) + 3] / 255;	// alpha values
+              if (a == 0) continue;	// empty pixels
+              var j = (y + buffer) * width + x + buffer;
+              if (a === 1) {	// fully drawn pixels
+                gridOuter[j] = 0;
+                gridInner[j] = INF;
+              } else {	// aliased pixels
+                var d = .5 - a;
+                gridOuter[j] = d > 0 ? d * d : 0;
+                gridInner[j] = d < 0 ? d * d : 0;
+              }
+            }
+          }
+          edt(gridOuter, 0, 0, width, height, width, f, v, z);
+          edt(gridInner, buffer, buffer, glyphWidth, glyphHeight, width, f, v, z);
+          for (var i = 0; i < len; i++) {
+            var d = Math.sqrt(gridOuter[i]) - Math.sqrt(gridInner[i]);
+            data[i] = Math.round(255 - 255 * (d / radius + cutoff));
+          }
+          canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          ctx = canvas.getContext('2d');
+          dd = ctx.createImageData(width, height);
+          for (var y = 0; y < height; y++) {
+            for (var x = 0; x < width; x++) {
+              dd.data[y * width * 4 + x * 4 + 3] = data[y * width + x];
+            }
+          }
+          ctx.putImageData(dd, 0, 0);
+          document.body.appendChild(canvas);
+          resolve(canvas);
+        };
+      });
+
+
+      svg.src = encodeSVGDataImage(svgElem.outerHTML);
+      return promise;
+    }
+
+    function encodeSVGDataImage(data) {
+      const symbols = /[\r\n%#()<>?[\\\]^`{|}]/g;
+      if (data.indexOf(`http://www.w3.org/2000/svg`) < 0) {
+        data = data.replace(/<svg/g, `<svg xmlns='http://www.w3.org/2000/svg'`);
+      }
+      data = data.replace(/"/g, `'`);
+      data = data.replace(/>\s{1,}</g, `><`);
+      data = data.replace(/\s{2,}/g, ` `);
+      data = data.replace(symbols, encodeURIComponent);
+      return `data:image/svg+xml,${data}`
+    }
+
+
     function isMapboxURL(url) {
       return url.indexOf('mapbox:') === 0;
     }
@@ -177,8 +307,14 @@
     const offscreen = new OffscreenCanvas(8, 14);
     const offContext = offscreen.getContext('2d');
     const shipShape = new Path2D('M0,-8L3,0L3,4L0,1L-3,4L-3,0L0,-8');
-    // TODO: instead define in a separate full SVG, and transform to canvas. Use tosdf.html to create SDF
-    const shipShapeSmall = new Path2D('M0-2 1-1 1 0 0-1-1 0-1-1 0-2');
+    const shipShapeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="16"  viewBox="-3 -8 6 12">
+      <path d="M0,-8L3,0L3,4L0,1L-3,4L-3,0L0,-8"></path>
+</svg>`;
+// TODO: instead define in a separate full SVG, and transform to canvas. Use tosdf.html to create SDF
+const shipShapeSmall = new Path2D('M0-2 1-1 1 0 0-1-1 0-1-1 0-2');
+const shipShapeSmallSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="5" height="5"  viewBox="-1 -1 2 2">
+  <path d="M0-2 1-1 1 0 0-1-1 0-1-1 0-2"></path>
+</svg>`;
 
     function randomColor() {
       return '#' + (Math.random() * 0xFFFFFF << 0).toString(16);
@@ -258,13 +394,23 @@
         //   'crosswalk-small',
         //   6, 'us-highway-business-3'
         // ],
-        'icon-image': 'vessel',
+        // 'icon-image': 'vessel',
+        'icon-image': [
+          'step', ['zoom'],
+          'vessel-small',
+          5, 'vessel'
+        ],
         // 'icon-image': ['concat', 'vessel-', ['get', 'color']],
         'icon-rotate': ['get', 'angle'],
         'icon-overlap': 'always',
         'text-overlap': 'never',
         'text-variable-anchor-offset': ['top', [0, 1], 'bottom', [0, -2], 'left', [1, 0], 'right', [-2, 0]],
-        'icon-size': 1.5,
+        // 'icon-size': 1,
+        "icon-size": [
+          'interpolate', ['linear'], ['zoom'], 
+          5, 0.5, 
+          10, 1
+        ],
         'text-field': ['get', 'name'],
         'text-optional': true,
         'text-size': 11,
@@ -282,7 +428,7 @@
           "#ffffff",
           "#424242",
         ],
-        'icon-halo-width': 7,
+        'icon-halo-width': 1,
         'text-color': '#035785',
         'text-halo-color': '#ffffff',
         'text-halo-width': 1
@@ -300,7 +446,7 @@
       }
     };
 
-
+    
     async function onLoad() {
       let response = await fetch('licenses.json');
       const licenses = await response.json();
@@ -315,8 +461,15 @@
       //   const bitmap = await getBitmap(color);
       //   map.addImage(`vessel-${color}`, bitmap);
       // }
-      const bitmap = await getBitmap('#000000');
-      map.addImage(`vessel`, bitmap, { sdf: true });
+      const vesselSdfCanvas = await svgToSdfCanvas(shipShapeSvg);
+      const vesselBitmap = await createImageBitmap(vesselSdfCanvas);
+      console.log('vesselSdfCanvas=', vesselSdfCanvas);
+      console.log('vesselBitmap=', vesselBitmap);
+      const smallVesselSdfCanvas = await svgToSdfCanvas(shipShapeSmallSvg);
+      const smallVesselBitmap = await createImageBitmap(smallVesselSdfCanvas);
+      // const bitmap = await getBitmap('#000000');
+      map.addImage(`vessel`, vesselBitmap, { sdf: true });
+      map.addImage(`vessel-small`, smallVesselBitmap, { sdf: true });
       map.on('styleimagemissing', (e) => {
         console.log(e);
       });
@@ -476,7 +629,7 @@
 
       });
       map.on('mousemove', (e) => {
-        document.getElementById('info').innerHTML = JSON.stringify(e.lngLat.wrap());
+        document.getElementById('info').innerHTML = JSON.stringify({coords: e.lngLat.wrap(), zoom: map.getZoom()});
       });
       map.on('mousemove', 'vessels', (e) => {
         map.getCanvas().style.cursor = 'pointer';
@@ -614,7 +767,7 @@
     onLoad();
 
     // function svgToCanvas(svgElement) {
-    
+
     //   const canvas = document.createElement('canvas');
     //   document.body.append(canvas);
     //   const svgStr = svgElement.outerHTML;
@@ -632,16 +785,16 @@
     // }
 
     /**  The goal with this is to be able to ultimately generate sdf or raster icons from material icons */
-      function customFontItemToCanvas() {
-        const canvas = document.createElement('canvas');
-        canvas.width = 300;
-        canvas.height = 200;
-        document.body.append(canvas);
-        const ctx = canvas.getContext('2d');
-        ctx.font         = '48px Material Symbols Outlined';
-        ctx.fillText  ('favorite', 0, 40);
-      }
-      customFontItemToCanvas();
+    function customFontItemToCanvas() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 300;
+      canvas.height = 200;
+      document.body.append(canvas);
+      const ctx = canvas.getContext('2d');
+      ctx.font = '48px Material Symbols Outlined';
+      ctx.fillText('favorite', 0, 40);
+    }
+    customFontItemToCanvas();
   </script>
 </body>
 

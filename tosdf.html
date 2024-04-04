@@ -1,110 +1,156 @@
 <!doctype html>
 <html>
+
 <body>
-<script type="text/javascript">
-// voy a intentar copy+pastear https://github.com/mapbox/tiny-sdf/blob/main/index.js
-// pero en lugar de una font voy a estar trabajando con un .svg ...
+	<script type="text/javascript">
+		// voy a intentar copy+pastear https://github.com/mapbox/tiny-sdf/blob/main/index.js
+		// pero en lugar de una font voy a estar trabajando con un .svg ...
 
-var INF = 1e20;
-// 1D squared distance transform
-function edt1d(grid, offset, stride, length, f, v, z) {
-    v[0] = 0;
-    z[0] = -INF;
-    z[1] = INF;
-    f[0] = grid[offset];
+		function svgToCanvas(svgString) {
 
-    for (let q = 1, k = 0, s = 0; q < length; q++) {
-        f[q] = grid[offset + q * stride];
-        const q2 = q * q;
-        do {
-            const r = v[k];
-            s = (f[q] - f[r] + q2 - r * r) / (q - r) / 2;
-        } while (s <= z[k] && --k > -1);
+			var INF = 1e20;
+			// 1D squared distance transform
+			function edt1d(grid, offset, stride, length, f, v, z) {
+				v[0] = 0;
+				z[0] = -INF;
+				z[1] = INF;
+				f[0] = grid[offset];
 
-        k++;
-        v[k] = q;
-        z[k] = s;
-        z[k + 1] = INF;
-    }
+				for (let q = 1, k = 0, s = 0; q < length; q++) {
+					f[q] = grid[offset + q * stride];
+					const q2 = q * q;
+					do {
+						const r = v[k];
+						s = (f[q] - f[r] + q2 - r * r) / (q - r) / 2;
+					} while (s <= z[k] && --k > -1);
 
-    for (let q = 0, k = 0; q < length; q++) {
-        while (z[k + 1] < q) k++;
-        const r = v[k];
-        const qr = q - r;
-        grid[offset + q * stride] = f[r] + qr * qr;
-    }
-}
+					k++;
+					v[k] = q;
+					z[k] = s;
+					z[k + 1] = INF;
+				}
 
-// 2D Euclidean squared distance transform by Felzenszwalb & Huttenlocher https://cs.brown.edu/~pff/papers/dt-final.pdf
-function edt(data, x0, y0, width, height, gridSize, f, v, z) {
-    for (let x = x0; x < x0 + width; x++) edt1d(data, y0 * gridSize + x, gridSize, height, f, v, z);
-    for (let y = y0; y < y0 + height; y++) edt1d(data, y * gridSize + x0, 1, width, f, v, z);
-}
-
-//var buffer = 3, radius = 8, cutoff = .25, padding = 0;
-var buffer = 0, radius = 8, cutoff = .25, padding = 0;
-var svg = document.createElement ('img');
-svg.onload = function () {
-	var glyphWidth  = svg.naturalWidth;
-	var glyphHeight = svg.naturalHeight;
-	var width  = glyphWidth  + 2 * buffer;
-	var height = glyphHeight + 2 * buffer;
-	var len = Math.max (width * height, 0);
-	var data = new Uint8ClampedArray (len);
-	// _createCanvas (con modificaciones mías)
-	var canvas = document.createElement ('canvas');
-	canvas.width  = glyphWidth;
-	canvas.height = glyphHeight;
-	// constructor
-	var ctx = canvas.getContext ('2d');
-	var gridOuter = new Float64Array (len);
-	var gridInner = new Float64Array (len);
-	var size = Math.max (width, height);
-	var f = new Float64Array (size);
-	var z = new Float64Array (size + 1);
-	var v = new Uint16Array (size);
-	// draw(char)
-	ctx.drawImage (svg, 0, 0);
-	var imgData = ctx.getImageData (0, 0, glyphWidth, glyphHeight);
-	gridOuter.fill (INF, 0, len);
-	gridInner.fill (0, 0, len);
-	for (var y=0; y<glyphHeight; y++) {
-		for (var x=0; x<glyphWidth; x++) {
-			var a = imgData.data[4*(y*glyphWidth+x)+3] / 255;	// alpha values
-			if (a == 0) continue;	// empty pixels
-			var j = (y + buffer) * width + x + buffer;
-			if (a === 1) {	// fully drawn pixels
-				gridOuter[j] = 0;
-				gridInner[j] = INF;
-			} else {	// aliased pixels
-				var d = .5 - a;
-				gridOuter[j] = d > 0 ? d * d : 0;
-				gridInner[j] = d < 0 ? d * d : 0;
+				for (let q = 0, k = 0; q < length; q++) {
+					while (z[k + 1] < q) k++;
+					const r = v[k];
+					const qr = q - r;
+					grid[offset + q * stride] = f[r] + qr * qr;
+				}
 			}
+
+			// 2D Euclidean squared distance transform by Felzenszwalb & Huttenlocher https://cs.brown.edu/~pff/papers/dt-final.pdf
+			function edt(data, x0, y0, width, height, gridSize, f, v, z) {
+				for (let x = x0; x < x0 + width; x++) edt1d(data, y0 * gridSize + x, gridSize, height, f, v, z);
+				for (let y = y0; y < y0 + height; y++) edt1d(data, y * gridSize + x0, 1, width, f, v, z);
+			}
+
+			const domParser = new DOMParser();
+			//var buffer = 3, radius = 8, cutoff = .25, padding = 0;
+			var buffer = 0, radius = 8, cutoff = .25, padding = 0;
+			var svg = document.createElement('img');
+			const promise = new Promise((resolve, reject) => {
+
+				svg.onload = function () {
+					var width = glyphWidth + 2 * buffer;
+					var height = glyphHeight + 2 * buffer;
+					var len = Math.max(width * height, 0);
+					var data = new Uint8ClampedArray(len);
+					// _createCanvas (con modificaciones mías)
+					var canvas = document.createElement('canvas');
+					canvas.width = glyphWidth;
+					canvas.height = glyphHeight;
+					// constructor
+					var ctx = canvas.getContext('2d');
+					var gridOuter = new Float64Array(len);
+					var gridInner = new Float64Array(len);
+					var size = Math.max(width, height);
+					var f = new Float64Array(size);
+					var z = new Float64Array(size + 1);
+					var v = new Uint16Array(size);
+					// draw(char)
+					ctx.drawImage(svg, 0, 0);
+					var imgData = ctx.getImageData(0, 0, glyphWidth, glyphHeight);
+					gridOuter.fill(INF, 0, len);
+					gridInner.fill(0, 0, len);
+					for (var y = 0; y < glyphHeight; y++) {
+						for (var x = 0; x < glyphWidth; x++) {
+							var a = imgData.data[4 * (y * glyphWidth + x) + 3] / 255;	// alpha values
+							if (a == 0) continue;	// empty pixels
+							var j = (y + buffer) * width + x + buffer;
+							if (a === 1) {	// fully drawn pixels
+								gridOuter[j] = 0;
+								gridInner[j] = INF;
+							} else {	// aliased pixels
+								var d = .5 - a;
+								gridOuter[j] = d > 0 ? d * d : 0;
+								gridInner[j] = d < 0 ? d * d : 0;
+							}
+						}
+					}
+					edt(gridOuter, 0, 0, width, height, width, f, v, z);
+					edt(gridInner, buffer, buffer, glyphWidth, glyphHeight, width, f, v, z);
+					for (var i = 0; i < len; i++) {
+						var d = Math.sqrt(gridOuter[i]) - Math.sqrt(gridInner[i]);
+						data[i] = Math.round(255 - 255 * (d / radius + cutoff));
+					}
+					// claro, y ahora tenemos datæ[], lo que no tiene TinySDF es generar el .png... a darle...
+					canvas = document.createElement('canvas');
+					canvas.width = width;
+					canvas.height = height;
+					ctx = canvas.getContext('2d');
+					dd = ctx.createImageData(width, height);
+					for (var y = 0; y < height; y++) {
+						for (var x = 0; x < width; x++) {
+							dd.data[y * width * 4 + x * 4 + 3] = data[y * width + x];
+						}
+					}
+					ctx.putImageData(dd, 0, 0);
+					document.body.appendChild(canvas);
+					resolve(canvas);
+				};
+			});
+			const svgElem = domParser.parseFromString(svgString, 'application/xml').firstChild;
+			const vb = svgElem.viewBox?.baseVal;
+			const baseWidth = 800;
+			let glyphWidth, glyphHeight;
+			if (vb) {
+				const ratio = vb.width / vb.height;
+				console.log(ratio);
+				glyphWidth = baseWidth;
+				glyphHeight = baseWidth * ratio;
+				svgElem.setAttribute('width', glyphWidth);
+				svgElem.setAttribute('height', glyphHeight);
+			} else {
+				glyphWidth = svgElem.getAttribute('width');
+				glyphHeight = svgElem.getAttribute('height');
+			}
+			svg.src = encodeSVGDataImage(svgElem.outerHTML);
+			return promise;
+			//svg.src = 'tram.svg';
+			// svg.src = 'testsvg.svg';
+
 		}
-	}
-	edt (gridOuter, 0, 0, width, height, width, f, v, z);
-	edt (gridInner, buffer, buffer, glyphWidth, glyphHeight, width, f, v, z);
-	for (var i=0; i<len; i++) {
-		var d = Math.sqrt (gridOuter[i]) - Math.sqrt (gridInner[i]);
-		data[i] = Math.round (255 - 255 * (d / radius + cutoff));
-	}
-	// claro, y ahora tenemos datæ[], lo que no tiene TinySDF es generar el .png... a darle...
-	canvas = document.createElement ('canvas');
-	canvas.width = width;
-	canvas.height = height;
-	ctx = canvas.getContext ('2d');
-	dd = ctx.createImageData (width, height);
-	for (var y=0; y<height; y++) {
-		for (var x=0; x<width; x++) {
-			dd.data[y*width*4+x*4+3] = data[y*width+x];
+
+		function encodeSVGDataImage(data) {
+			const symbols = /[\r\n%#()<>?[\\\]^`{|}]/g;
+			if (data.indexOf(`http://www.w3.org/2000/svg`) < 0) {
+				data = data.replace(/<svg/g, `<svg xmlns='http://www.w3.org/2000/svg'`);
+			}
+			data = data.replace(/"/g, `'`);
+			data = data.replace(/>\s{1,}</g, `><`);
+			data = data.replace(/\s{2,}/g, ` `);
+			data = data.replace(symbols, encodeURIComponent);
+			return `data:image/svg+xml,${data}`
 		}
-	}
-	ctx.putImageData (dd, 0, 0);
-	document.body.appendChild (canvas);
-};
-//svg.src = 'tram.svg';
-svg.src = 'testsvg.svg';
-</script>
+
+		const svgString = `<svg height="800" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M7 12H17M8 8.5C8 8.5 9 9 10 9C11.5 9 12.5 8 14 8C15 8 16 8.5 16 8.5M8 15.5C8 15.5 9 16 10 16C11.5 16 12.5 15 14 15C15 15 16 15.5 16 15.5M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>`;
+		svgToCanvas(svgString).then(canvas => {
+			console.log(canvas);
+		});
+		// svg.src = encodeSVGDataImage(svgString);
+	</script>
 </body>
+
 </html>
