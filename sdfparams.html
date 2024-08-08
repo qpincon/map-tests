@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <title>SDF parameters</title>
+    <meta property="og:description" content="Style a polygon with the fill layer type." />
+    <meta charset='utf-8'>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel='stylesheet' href='libs/maplibre-gl.css' />
+    <script src='libs/maplibre-gl.js'></script>
+    <script src='libs/mapbox-gl-draw.js'></script>
+    <link rel='stylesheet' href='libs/mapbox-gl-draw.css' type='text/css' />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #toprow {
+            height: 50%;
+            width: 100%;
+            display: flex;
+        }
+
+        #map {
+            height: 100%;
+            width: 60%;
+        }
+
+        #canvases {
+            width: 50%;
+
+            canvas {
+                border: 1px solid red;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="toprow">
+        <div id="map"></div>
+        <div id="canvases"></div>
+    </div>
+    <div>
+        <input type="range" id="buffer" name="buffer" min="0" max="32" value="4" step="1" />
+        <label for="buffer">Buffer</label>
+        <span id="buffer-value"> </span>
+    </div>
+    <div>
+        <input type="range" id="radius" name="radius" min="0" max="32" value="8" step="1" />
+        <label for="radius">Radius</label>
+        <span id="radius-value"> </span>
+    </div>
+    <div>
+        <input type="range" id="cutoff" name="cutoff" min="0" max="1" value="0.15" step="any" />
+        <label for="cutoff">Cutoff</label>
+        <span id="cutoff-value"> </span>
+    </div>
+    <div>
+        <input type="range" id="resize" name="resize" min="1" max="8" value="1" step="1" />
+        <label for="resize">Resize</label>
+        <span id="resize-value"> </span>
+    </div>
+
+
+    <script>
+        buffer = 4;
+        radius = 8;
+        cutoff = 0.15;
+        resize = 1;
+        let map = null;
+        const DOM_PARSER = new DOMParser();
+        const INF = 1e20;
+        const BASE_WIDTH = 15;
+
+        document.getElementById('radius').addEventListener('click', (e) => generateImage(e));
+        document.getElementById('buffer').addEventListener('click', (e) => generateImage(e));
+        document.getElementById('cutoff').addEventListener('click', (e) => generateImage(e));
+        document.getElementById('resize').addEventListener('click', (e) => generateImage(e));
+
+        async function generateImage(e) {
+            const id = e.target.id;
+            const value = e.target.valueAsNumber;
+            window[id] = value;
+            map.removeImage('vessel');
+            const sdfCanvas = await svgToSdfCanvas(shipShapeSvg);
+            document.getElementById('canvases').append(sdfCanvas);
+            const imageData = sdfCanvas.getContext('2d').getImageData(0, 0, sdfCanvas.width, sdfCanvas.height);
+            map.addImage(`vessel`, imageData, { sdf: true });
+            document.getElementById(`${id}-value`).innerText = value;
+            if (id === 'resize') map.setLayoutProperty('vessels', 'icon-size', 1 / resize);
+        }
+
+        function svgToSdfCanvas(svgString) {
+            const svg = document.createElement('img');
+            const svgElem = DOM_PARSER.parseFromString(svgString, 'application/xml').firstElementChild;
+            /** SDF icon generation works better on large icons, later scaled down */
+            setSvgDimensionsBasedOnViewBox(svgElem, BASE_WIDTH, resize);
+            console.log(svgElem);
+            const glyphWidth = parseInt(svgElem.getAttribute('width'), 10);
+            const glyphHeight = parseInt(svgElem.getAttribute('height'), 10);
+
+            const promise = new Promise((resolve, _) => {
+                svg.onload = () => {
+                    const width = glyphWidth + 2 * buffer;
+                    const height = glyphHeight + 2 * buffer;
+                    const len = Math.max(width * height, 0);
+                    let canvas = document.createElement('canvas');
+                    canvas.width = glyphWidth;
+                    canvas.height = glyphHeight;
+                    let ctx = canvas.getContext('2d');
+                    const gridOuter = new Float64Array(len);
+                    const gridInner = new Float64Array(len);
+
+                    /** Draw image on canvas to access image data */
+                    ctx.drawImage(svg, 0, 0);
+                    const imgData = ctx.getImageData(0, 0, glyphWidth, glyphHeight);
+                    gridOuter.fill(INF, 0, len);
+                    gridInner.fill(0, 0, len);
+
+                    /** Detect filled and empty areas */
+                    for (let y = 0; y < glyphHeight; y++) {
+                        for (let x = 0; x < glyphWidth; x++) {
+                            const a = imgData.data[4 * (y * glyphWidth + x) + 3] / 255; // alpha values
+                            if (a === 0) continue; // empty pixels
+                            const j = (y + buffer) * width + x + buffer;
+                            if (a === 1) { // fully drawn pixels
+                                gridOuter[j] = 0;
+                                gridInner[j] = INF;
+                            } else { // aliased pixels
+                                const d = .5 - a;
+                                gridOuter[j] = d > 0 ? d * d : 0;
+                                gridInner[j] = d < 0 ? d * d : 0;
+                            }
+                        }
+                    }
+
+                    const size = Math.max(width, height);
+                    const f = new Float64Array(size);
+                    const z = new Float64Array(size + 1);
+                    const v = new Uint16Array(size);
+                    edt(gridOuter, 0, 0, width, height, width, f, v, z);
+                    edt(gridInner, buffer, buffer, glyphWidth, glyphHeight, width, f, v, z);
+
+                    const data = new Uint8ClampedArray(len);
+                    for (let i = 0; i < len; i++) {
+                        const d = Math.sqrt(gridOuter[i]) - Math.sqrt(gridInner[i]);
+                        data[i] = Math.round(255 - 255 * (d / radius + cutoff));
+                    }
+
+                    /** Create new canvas to draw SDF image */
+                    canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    ctx = canvas.getContext('2d');
+                    const imageData = ctx.createImageData(width, height);
+                    for (let y = 0; y < height; y++) {
+                        for (let x = 0; x < width; x++) {
+                            imageData.data[y * width * 4 + x * 4 + 3] = data[y * width + x];
+                        }
+                    }
+                    ctx.putImageData(imageData, 0, 0);
+                    resolve(canvas);
+                };
+            });
+
+            svg.src = encodeSVGDataImage(svgElem.outerHTML);
+            return promise;
+        }
+
+        function encodeSVGDataImage(data) {
+            return `data:image/svg+xml;utf8,${encodeURIComponent(data)}`;
+        }
+
+        function setSvgDimensionsBasedOnViewBox(
+            svgElem,
+            baseWidth = 10,
+            resizeFactor = 1,
+        ) {
+            const viewBox = svgElem.viewBox?.baseVal;
+            let glyphWidth = parseInt(svgElem.getAttribute('width') || '0', 10) * resizeFactor;
+            let glyphHeight = parseInt(svgElem.getAttribute('height') || '0', 10) * resizeFactor;
+
+            /** No width or no height on the SVG: set it from the viewBox  */
+            if ((!glyphWidth || !glyphHeight) && viewBox) {
+                const ratio = viewBox.height / viewBox.width;
+                if (!glyphWidth) glyphWidth = baseWidth * resizeFactor;
+                glyphHeight = Math.ceil(glyphWidth * ratio);
+            }
+            svgElem.setAttribute('width', `${glyphWidth}px`);
+            svgElem.setAttribute('height', `${glyphHeight}px`);
+        }
+
+
+        /** 1D squared distance transform */
+        function edt1d(
+            grid,
+            offset,
+            stride,
+            length,
+            f,
+            v,
+            z,
+        ) {
+            v[0] = 0;
+            z[0] = -INF;
+            z[1] = INF;
+            f[0] = grid[offset];
+
+            for (let q = 1, k = 0, s = 0; q < length; q++) {
+                f[q] = grid[offset + q * stride];
+                const q2 = q * q;
+                do {
+                    const r = v[k];
+                    s = (f[q] - f[r] + q2 - r * r) / (q - r) / 2;
+                } while (s <= z[k] && --k > -1);
+
+                k++;
+                v[k] = q;
+                z[k] = s;
+                z[k + 1] = INF;
+            }
+
+            for (let q = 0, k = 0; q < length; q++) {
+                while (z[k + 1] < q) k++;
+                const r = v[k];
+                const qr = q - r;
+                grid[offset + q * stride] = f[r] + qr * qr;
+            }
+        }
+
+        /**
+         * 2D Euclidean squared distance transform by Felzenszwalb & Huttenlocher
+         * https://cs.brown.edu/~pff/papers/dt-final.pdf
+         */
+        function edt(
+            data,
+            x0,
+            y0,
+            width,
+            height,
+            gridSize,
+            f,
+            v,
+            z,
+        ) {
+            for (let x = x0; x < x0 + width; x++) edt1d(data, y0 * gridSize + x, gridSize, height, f, v, z);
+            for (let y = y0; y < y0 + height; y++) edt1d(data, y * gridSize + x0, 1, width, f, v, z);
+        }
+
+
+        function isMapboxURL(url) {
+            return url.indexOf('mapbox:') === 0;
+        }
+
+        function transformMapboxUrl(url, resourceType, accessToken) {
+            if (url.indexOf('/styles/') > -1 && url.indexOf('/styles/') < 15 && url.indexOf('/sprite') === -1) return { url: normalizeStyleURL(url, accessToken) }
+            if (url.indexOf('/sprites/') > -1) return { url: normalizeSpriteURL(url, '', '.json', accessToken) }
+            if (url.indexOf('/fonts/') > -1) return { url: normalizeGlyphsURL(url, accessToken) }
+            if (url.indexOf('/v4/') > -1) return { url: normalizeSourceURL(url, accessToken) }
+            if (resourceType === 'Source') return { url: normalizeSourceURL(url, accessToken) }
+        }
+
+        function parseUrl(url) {
+            const urlRe = /^(\w+):\/\/([^/?]*)(\/[^?]+)?\??(.+)?/;
+            const parts = url.match(urlRe);
+            if (!parts) {
+                throw new Error('Unable to parse URL object');
+            }
+            return {
+                protocol: parts[1],
+                authority: parts[2],
+                path: parts[3] || '/',
+                params: parts[4] ? parts[4].split('&') : []
+            };
+        }
+
+        function formatUrl(urlObject, accessToken) {
+            const apiUrlObject = parseUrl("https://api.mapbox.com");
+            urlObject.protocol = apiUrlObject.protocol;
+            urlObject.authority = apiUrlObject.authority;
+            urlObject.params.push(`access_token=${accessToken}`);
+            const params = urlObject.params.length ? `?${urlObject.params.join('&')}` : '';
+            return `${urlObject.protocol}://${urlObject.authority}${urlObject.path}${params}`;
+        }
+
+        function normalizeStyleURL(url, accessToken) {
+            const urlObject = parseUrl(url);
+            urlObject.path = `/styles/v1${urlObject.path}`;
+            return formatUrl(urlObject, accessToken);
+        }
+
+        function normalizeGlyphsURL(url, accessToken) {
+            const urlObject = parseUrl(url);
+            urlObject.path = `/fonts/v1${urlObject.path}`;
+            return formatUrl(urlObject, accessToken);
+        }
+
+        function normalizeSourceURL(url, accessToken) {
+            const urlObject = parseUrl(url);
+            urlObject.path = `/v4/${urlObject.authority}.json`;
+            urlObject.params.push('secure');
+            return formatUrl(urlObject, accessToken);
+        }
+
+        function normalizeSpriteURL(url, format, extension, accessToken) {
+            const urlObject = parseUrl(url);
+            const path = urlObject.path.split('.')
+            urlObject.path = `/styles/v1${path[0]}/sprite.${path[1]}`;
+            return formatUrl(urlObject, accessToken);
+        }
+
+        const mapboxKey = 'pk.eyJ1IjoicXVlbnRpbi1zcGkiLCJhIjoiY2xua2U1eTAyMGI5aTJxczF4b3Rwb3A3OSJ9.-6a4V4OYf5BEnW8eL7TZ-w';
+        const transformRequest = (url, resourceType) => {
+            if (isMapboxURL(url)) {
+                const finalUrl = transformMapboxUrl(url, resourceType, mapboxKey);
+                return finalUrl;
+            }
+
+            // Do any other transforms you want
+            return { url }
+        }
+
+        // mapboxgl.accessToken = 'pk.eyJ1IjoicXVlbnRpbi1zcGkiLCJhIjoiY2xua2U1eTAyMGI5aTJxczF4b3Rwb3A3OSJ9.-6a4V4OYf5BEnW8eL7TZ-w';
+        // const map = new mapboxgl.Map({
+        map = new maplibregl.Map({
+            container: 'map',
+            // style: 'customlightstyle.json',
+            style: 'mapbox://styles/quentin-spi/clnlho00u003g01pgafe859ke?optimize=true&fresh=true',
+            center: [4.584004099488652, 52.46124160415769],
+            zoom: 16,
+            transformRequest
+        });
+        map.showCollisionBoxes = true;
+
+        let originalStyle;
+        let labelLayers;
+
+        function capFirst(string) {
+            return string.charAt(0).toUpperCase() + string.slice(1);
+        }
+
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min)) + min;
+        }
+
+        const name1 = ["abandoned", "unlawful", "unlined", "unlucky", "unnatural", "unpleasant", "unrealistic", "unripe", "unruly", "unselfish", "unsightly", "unsteady", "unsung", "untidy", "untimely", "untried", "untrue", "unused", "unusual", "unwelcome", "unwieldy", "unwilling", "unwitting", "unwritten", "upbeat", "upright", "upset", "urban", "usable", "used", "useful", "useless", "utilized", "utter", "vacant", "vague", "vain", "valid", "valuable", "vapid", "variable", "vast", "velvety", "venerated", "vengeful", "verifiable", "vibrant", "vicious", "victorious", "vigilant", "vigorous", "villainous", "violet", "violent", "virtual", "virtuous", "visible", "vital", "vivacious", "vivid", "voluminous", "wan", "warlike", "warm", "warmhearted", "warped", "wary", "wasteful", "watchful", "waterlogged", "watery", "wavy", "wealthy", "weak", "weary", "webbed", "wee", "weekly", "weepy", "weighty", "weird", "welcome", "well-documented", "well-groomed", "well-informed", "well-lit", "well-made", "well-off", "well-to-do", "well-worn", "wet", "which", "whimsical", "whirlwind", "whispered", "white", "whole", "whopping", "wicked", "wide", "wide-eyed", "wiggly", "wild", "willing", "wilted", "winding", "windy", "winged", "wiry", "wise", "witty", "wobbly", "woeful", "wonderful", "wooden", "woozy", "wordy", "worldly", "worn", "worried", "worrisome", "worse", "worst", "worthless", "worthwhile", "worthy", "wrathful", "wretched", "writhing", "wrong", "wry", "yawning", "yearly", "yellow", "yellowish", "young", "youthful", "yummy", "zany", "zealous", "zesty", "zigzag", "rocky"];
+        const name2 = ["people", "history", "way", "art", "world", "information", "map", "family", "government", "health", "system", "computer", "meat", "cap", "coat", "contest", "corner", "court", "cup", "district", "door", "east", "finger", "garage", "guarantee", "hole", "hook", "implement", "layer", "lecture", "lie", "manner", "meeting", "nose", "parking", "partner", "profile", "rice", "routine", "schedule", "swimming", "telephone", "tip", "winter", "airline", "bag", "battle", "bed", "bill", "bother", "cake", "code", "curve", "designer", "dimension", "dress", "ease", "emergency", "evening", "extension", "farm", "fight", "gap", "grade", "holiday", "horror", "horse", "host", "husband", "loan", "mistake", "mountain", "nail", "noise", "occasion", "package", "patient", "pause", "phrase", "proof", "race", "relief", "sand", "sentence", "shoulder", "smoke", "stomach", "string", "tourist", "towel", "vacation", "west", "wheel", "wine", "arm", "aside", "associate", "bet", "blow", "border", "branch", "breast", "brother", "buddy", "bunch", "chip", "coach", "cross", "document", "draft", "dust", "expert", "floor", "god", "golf", "habit", "iron", "judge", "knife", "landscape", "league", "mail", "mess", "native", "opening", "parent", "pattern", "pin", "pool", "pound", "request", "salary", "shame", "shelter", "shoe", "silver", "tackle", "tank", "trust", "assist", "bake", "bar", "bell", "bike", "blame", "boy", "brick", "chair", "closet", "clue", "collar", "comment", "conference", "devil", "diet", "fear", "fuel", "glove", "jacket", "lunch", "monitor", "mortgage", "nurse", "pace", "panic", "peak", "plane", "reward", "row", "sandwich", "shock", "spite", "spray", "surprise", "till", "transition", "weekend", "welcome", "yard", "alarm", "bend", "bicycle", "bite", "blind", "bottle", "cable", "candle", "clerk", "cloud", "concert", "counter", "flower", "grandfather", "harm", "knee", "lawyer", "leather", "load", "mirror", "neck", "pension", "plate", "purple", "ruin", "ship", "skirt", "slice", "snow", "specialist", "stroke", "switch", "trash", "tune", "zone", "anger", "award", "bid", "bitter", "boot", "bug", "camp", "candy", "carpet", "cat", "champion", "channel", "clock", "comfort", "cow", "crack", "engineer", "entrance", "fault", "grass", "guy", "hell", "highlight", "incident", "island", "joke", "jury", "leg", "lip", "mate", "motor", "nerve", "passage", "pen", "pride", "priest", "prize", "promise", "resident", "resort", "ring", "roof", "rope", "sail", "scheme", "script", "sock", "station", "toe", "tower", "truck", "witness", "can", "will", "other", "use", "make", "good", "look", "help", "go", "great", "being", "still", "public", "read", "keep", "start", "give", "human", "local", "general", "specific", "long", "play", "feel", "high", "put", "common", "set", "change", "simple", "past", "big", "possible", "particular", "major", "personal", "current", "national", "cut", "natural", "physical", "show", "try", "check", "second", "call", "move", "pay", "let", "increase", "single", "individual", "turn", "ask", "buy", "guard", "hold", "main", "offer", "potential", "professional", "international", "travel", "cook", "alternative", "special", "working", "whole", "dance", "excuse", "cold", "commercial", "low", "purchase", "deal", "primary", "worth", "fall", "necessary", "positive", "produce", "search", "present", "spend", "talk", "creative", "tell", "cost", "drive", "green", "support", "glad", "remove", "return", "run", "complex", "due", "effective", "middle", "regular", "reserve", "independent", "leave", "original", "reach", "rest", "serve", "watch", "beautiful", "charge", "active", "break", "negative", "safe", "stay", "visit", "visual", "affect", "cover", "report", "rise", "walk", "white", "junior", "pick", "unique", "classic", "final", "lift", "mix", "private", "stop", "teach", "western", "concern", "familiar", "fly", "official", "broad", "comfortable", "gain", "rich", "save", "stand", "young", "heavy", "lead", "listen", "valuable", "worry", "handle", "leading", "meet", "release", "sell", "finish", "normal", "press", "ride", "secret", "spread", "spring", "tough", "wait", "brown", "deep", "display", "flow", "hit", "objective", "shoot", "touch", "cancel", "chemical", "cry", "dump", "extreme", "push", "conflict", "eat", "fill", "formal", "jump", "kick", "opposite", "pass", "pitch", "remote", "total", "treat", "vast", "abuse", "beat", "burn", "deposit", "print", "raise", "sleep", "somewhere", "advance", "consist", "dark", "double", "draw", "equal", "fix", "hire", "internal", "join", "kill", "sensitive", "tap", "win", "attack", "claim", "constant", "drag", "drink", "guess", "minor", "pull", "raw", "soft", "solid", "wear", "weird", "wonder", "annual", "count", "dead", "doubt", "feed", "forever", "impress", "repeat", "round", "sing", "slide", "strip", "wish", "combine", "command", "dig", "divide", "equivalent", "hang", "hunt", "initial", "march", "mention", "spiritual", "survey", "tie", "adult", "brief", "crazy", "escape", "gather", "hate", "prior", "repair", "rough", "sad", "scratch", "sick", "strike", "employ", "external", "hurt", "illegal", "laugh", "lay", "mobile", "nasty", "ordinary", "respond", "royal", "senior", "split", "strain", "struggle", "swim", "train", "upper", "wash", "yellow", "convert", "crash", "dependent", "fold", "funny", "grab", "hide", "miss", "permit", "quote", "recover", "resolve", "roll", "sink", "slip", "spare", "suspect", "sweet", "swing", "twist", "upstairs", "usual", "abroad", "brave", "calm", "concentrate", "estimate", "grand", "male", "mine", "prompt", "quiet", "refuse", "regret", "reveal", "rush", "shake", "shift", "shine", "steal", "suck", "surround", "bear", "brilliant", "dare", "dear", "delay", "drunk", "female", "hurry", "inevitable", "invite", "kiss", "neat", "pop", "punch", "quit", "reply", "representative", "resist", "rip", "rub", "silly", "smile", "spell", "stretch", "stupid", "tear", "temporary", "tomorrow", "wake", "wrap", "yesterday", "Thomas", "Tom", "Lieuwe"];
+        function generateName() {
+            const name = capFirst(name1[getRandomInt(0, name1.length)]) + ' ' + capFirst(name2[getRandomInt(0, name2.length)]);
+            return name;
+        }
+
+        const colorToBitmap = {};
+        const activityStatusToColor = {};
+        const offscreen = new OffscreenCanvas(8, 14);
+        const offContext = offscreen.getContext('2d');
+        const shipShapeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="8"  viewBox="-3 -8 6 12">
+  <path
+    d="M0,-8L3,0L3,4L0,1L-3,4L-3,0L0,-8" />
+</svg>
+`;
+
+        function randomColor() {
+            return '#' + (Math.random() * 0xFFFFFF << 0).toString(16);
+        }
+
+        function getOrAddColorFromActivity(activity) {
+            if (activity in activityStatusToColor) {
+                return activityStatusToColor[activity];
+            }
+            const color = randomColor();
+            activityStatusToColor[activity] = color;
+            return color;
+        }
+
+        const vesselLayerDefinition = {
+            'id': 'vessels',
+            'type': 'symbol',
+            'source': 'vessels',
+            'layout': {
+                'icon-allow-overlap': true,
+                'icon-image': 'vessel',
+                'icon-rotate': ['get', 'angle'],
+                'icon-overlap': 'always',
+                'icon-size': 1,
+                "icon-padding": 0,
+                // "icon-size": [
+                //     'interpolate', ['linear'], ['zoom'],
+                //     5, 0.5,
+                //     10, 1
+                // ],
+                'text-overlap': 'never',
+                'text-variable-anchor-offset': ['top', [0, 1], 'bottom', [0, -2], 'left', [1, 0], 'right', [-2, 0]],
+                'text-field': ['get', 'name'],
+                'text-optional': true,
+                'text-size': 11,
+                'text-justify': 'auto',
+                'text-transform': 'uppercase',
+            },
+            'paint': {
+                'icon-color': ['get', 'color'],
+                'icon-halo-color': [
+                    "case",
+                    ['boolean', ['feature-state', 'hover'], false],
+                    "#ffffff",
+                    "#424242",
+                ],
+                'text-color': '#035785',
+                'text-halo-color': '#ffffff',
+                'text-halo-width': 1,
+                'icon-halo-width': 1,
+            }
+        };
+        const vesselPointPosition = {
+            'id': 'vessels-debug',
+            'type': 'circle',
+            'source': 'vessels',
+            'layout': {
+            },
+            'paint': {
+                "circle-color": "red",
+                "circle-radius": 1
+            }
+        };
+
+        const vesselLayerLabelDefinition = {
+            'id': 'vessels-labels',
+            'type': 'symbol',
+            'source': 'vessels',
+            'layout': {
+                'text-overlap': 'never',
+                'text-variable-anchor-offset': ['top', [0, 1], 'bottom', [0, -2], 'left', [1, 0], 'right', [-2, 0]],
+                'text-field': ['get', 'name'],
+                'text-optional': true,
+                'text-size': 11,
+                'text-justify': 'auto',
+                'text-transform': 'uppercase',
+            },
+            'paint': {
+                'text-color': '#035785',
+                'text-halo-color': '#ffffff',
+                'text-halo-width': 1
+            }
+        };
+
+
+        async function onLoad() {
+            response = await fetch('vessel-lastpositions.json');
+            const vessels = await response.json();
+            vessels.features.forEach(v => (v.properties.name = generateName()));
+            const colors = new Set(vessels.features.map(v => v.properties.color));
+
+            const sdfCanvas = await svgToSdfCanvas(shipShapeSvg);
+            const imageData = sdfCanvas.getContext('2d').getImageData(0, 0, sdfCanvas.width, sdfCanvas.height);
+            map.addImage(`vessel`, imageData, { sdf: true });
+            map.on('styleimagemissing', (e) => {
+                console.log(e);
+            });
+
+            map.on('load', () => {
+                map.addSource('vessels', {
+                    'type': 'geojson',
+                    'data': vessels,
+                });
+                map.addLayer(vesselLayerDefinition);
+            });
+            let hoveredStateId = null;
+            let hoveredFeatures;
+            map.on('click', 'sedim', (e) => {
+                new maplibregl.Popup()
+                    .setLngLat(e.lngLat)
+                    .setHTML(e.features[0].properties.TYPE_VALEU)
+                    .addTo(map);
+
+            });
+
+            function onVesselHover() {
+                console.log('onVesselHover', hoveredFeatures);
+                if (!hoveredFeatures) return;
+                if (hoveredStateId) {
+                    map.setFeatureState(
+                        { source: 'vessels', id: hoveredStateId },
+                        { hover: false }
+                    );
+                }
+                hoveredStateId = hoveredFeatures[0].id;
+                map.setFeatureState(
+                    { source: 'vessels', id: hoveredStateId },
+                    { hover: true }
+                );
+            }
+
+            function onVesselMouseOut(e) {
+                console.log('onVesselMouseOut', e)
+                // map.getCanvas().style.cursor = '';
+                if (hoveredStateId) {
+                    map.setFeatureState(
+                        { source: 'vessels', id: hoveredStateId },
+                        { hover: false }
+                    );
+                }
+                hoveredFeatures = null;
+                hoveredStateId = null;
+            }
+            console.log('setting listeners');
+
+            map.on('mousemove', 'vessels', (e) => {
+
+                console.log(e);
+                // console.log('maplibre vessels mouseover', e.features);
+
+                map.getCanvas().style.cursor = 'pointer';
+
+                if (e.features.length > 0) {
+                    hoveredFeatures = e.features;
+                    console.log(e.features[0].id);
+                    const feature = vessels.features.find(f => f.id === e.features[0].id);
+
+                    if (hoveredStateId) {
+                        map.setFeatureState(
+                            { source: 'vessels', id: hoveredStateId },
+                            { hover: false }
+                        );
+                    }
+                    hoveredStateId = hoveredFeatures[0].id;
+                    console.log(hoveredStateId);
+                    map.setFeatureState(
+                        { source: 'vessels', id: hoveredStateId },
+                        { hover: true }
+                    );
+
+                }
+            });
+
+            map.on('mouseleave', 'vessels', () => {
+                map.getCanvas().style.cursor = '';
+                if (hoveredStateId) {
+                    map.setFeatureState(
+                        { source: 'vessels', id: hoveredStateId },
+                        { hover: false }
+                    );
+                }
+                hoveredStateId = null;
+            });
+
+        }
+        onLoad();
+    </script>
+</body>
+
+</html>
