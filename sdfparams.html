@@ -7,6 +7,7 @@
     <meta charset='utf-8'>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel='stylesheet' href='libs/maplibre-gl.css' />
+    <script type="module" src='libs/pica.js'></script>
     <script src='libs/maplibre-gl.js'></script>
     <script src='libs/mapbox-gl-draw.js'></script>
     <link rel='stylesheet' href='libs/mapbox-gl-draw.css' type='text/css' />
@@ -35,6 +36,9 @@
             canvas {
                 border: 1px solid red;
             }
+            canvas.resized {
+                border: 1px solid blue;
+            }
         }
     </style>
 </head>
@@ -47,27 +51,31 @@
     <div>
         <input type="range" id="buffer" name="buffer" min="0" max="32" value="4" step="1" />
         <label for="buffer">Buffer</label>
-        <span id="buffer-value"> </span>
+        <span id="buffer-value"> 4</span>
     </div>
     <div>
-        <input type="range" id="radius" name="radius" min="0" max="32" value="8" step="1" />
+        <input type="range" id="radius" name="radius" min="0" max="64" value="8" step="1" />
         <label for="radius">Radius</label>
-        <span id="radius-value"> </span>
+        <span id="radius-value"> 8</span>
     </div>
     <div>
         <input type="range" id="cutoff" name="cutoff" min="0" max="1" value="0.15" step="any" />
         <label for="cutoff">Cutoff</label>
-        <span id="cutoff-value"> </span>
+        <span id="cutoff-value"> 0.15</span>
     </div>
     <div>
         <input type="range" id="resize" name="resize" min="1" max="8" value="1" step="1" />
         <label for="resize">Resize</label>
-        <span id="resize-value"> </span>
+        <span id="resize-value"> 1</span>
     </div>
     <div>
-        <input type="range" id="halo-width" name="halo-width" min="0" max="2" value="1" step="0.1" />
+        <input type="range" id="halo-width" name="halo-width" min="0" max="3" value="1" step="0.1" />
         <label for="halo-width">Halo width</label>
         <span id="halo-width-value">1 </span>
+    </div>
+    <div>
+        <input type="checkbox" id="map-resize" name="map-resize" />
+        <label for="map-resize">Use maplibre resize (if false, canvas resize)</label>
     </div>
 
 
@@ -86,12 +94,21 @@
         document.getElementById('cutoff').addEventListener('click', (e) => generateImage(e));
         document.getElementById('resize').addEventListener('click', (e) => generateImage(e));
         document.getElementById('halo-width').addEventListener('click', (e) => generateImage(e));
+        document.getElementById('map-resize').addEventListener('click', (e) => generateImage(e));
+
+        document.getElementById('radius').addEventListener('keyup', (e) => generateImage(e));
+        document.getElementById('buffer').addEventListener('keyup', (e) => generateImage(e));
+        document.getElementById('cutoff').addEventListener('keyup', (e) => generateImage(e));
+        document.getElementById('resize').addEventListener('keyup', (e) => generateImage(e));
+        document.getElementById('halo-width').addEventListener('keyup', (e) => generateImage(e));
+        document.getElementById('map-resize').addEventListener('keyup', (e) => generateImage(e));
 
         async function generateImage(e) {
             const id = e.target.id;
-            const value = e.target.valueAsNumber;
+            const value = id === "map-resize" ? e.target.checked: e.target.valueAsNumber;
+            console.log(id, value)
             window[id] = value;
-            document.getElementById(`${id}-value`).innerText = value;
+            if (document.getElementById(`${id}-value`)) document.getElementById(`${id}-value`).innerText = value;
             if (id==='halo-width') {
                 map.setPaintProperty('vessels', 'icon-halo-width', value);
                 return;
@@ -99,17 +116,19 @@
             map.removeImage('vessel');
             const sdfCanvas = await svgToSdfCanvas(shipShapeSvg);
             document.getElementById('canvases').append(sdfCanvas);
+            // console.log('sdfCanvas=', sdfCanvas);
             const imageData = sdfCanvas.getContext('2d').getImageData(0, 0, sdfCanvas.width, sdfCanvas.height);
             map.addImage(`vessel`, imageData, { sdf: true });
-            if (id === 'resize') map.setLayoutProperty('vessels', 'icon-size', 1 / resize);
+            console.log(id, value);
+            if (window['map-resize'] === true) map.setLayoutProperty('vessels', 'icon-size', 1 / window['resize']);
+            else map.setLayoutProperty('vessels', 'icon-size', 1);
         }
 
         function svgToSdfCanvas(svgString) {
             const svg = document.createElement('img');
             const svgElem = DOM_PARSER.parseFromString(svgString, 'application/xml').firstElementChild;
             /** SDF icon generation works better on large icons, later scaled down */
-            setSvgDimensionsBasedOnViewBox(svgElem, BASE_WIDTH, resize);
-            console.log(svgElem);
+            const {originalHeight, originalWidth}=  setSvgDimensionsBasedOnViewBox(svgElem, BASE_WIDTH, resize);
             const glyphWidth = parseInt(svgElem.getAttribute('width'), 10);
             const glyphHeight = parseInt(svgElem.getAttribute('height'), 10);
 
@@ -173,13 +192,41 @@
                         }
                     }
                     ctx.putImageData(imageData, 0, 0);
-                    resolve(canvas);
+
+                    if (window['map-resize'] === true) {
+                        resolve(canvas);
+                    } else {
+                        canvas.classList.add('resized');
+                        document.getElementById('canvases').append(canvas);
+                        const scaledDownCanvas = document.createElement('canvas');
+                        const padding = 4;
+                        scaledDownCanvas.width = originalWidth + padding;
+                        scaledDownCanvas.height = originalHeight + padding;
+                        pica().resize(canvas, scaledDownCanvas).then((res)=>{
+                            resolve(scaledDownCanvas);
+                        });
+                        
+                    }
                 };
             });
 
             svg.src = encodeSVGDataImage(svgElem.outerHTML);
             return promise;
         }
+
+        function convertSdfToRGBImageData(sdfImageData) {
+            for (let y = 0; y < sdfImageData.height; y++) {
+                for (let x = 0; x < sdfImageData.width; x++) {
+                const alphaIndex = y * sdfImageData.width * 4 + x * 4 + 3;
+                const alpha = sdfImageData.data[alphaIndex];
+                for (let i = alphaIndex - 3; i < alphaIndex; i++) {
+                    sdfImageData.data[i] = 255 - alpha;
+                }
+                sdfImageData.data[alphaIndex] = 255;
+                }
+            }
+        }
+
 
         function encodeSVGDataImage(data) {
             return `data:image/svg+xml;utf8,${encodeURIComponent(data)}`;
@@ -191,17 +238,18 @@
             resizeFactor = 1,
         ) {
             const viewBox = svgElem.viewBox?.baseVal;
-            let glyphWidth = parseInt(svgElem.getAttribute('width') || '0', 10) * resizeFactor;
-            let glyphHeight = parseInt(svgElem.getAttribute('height') || '0', 10) * resizeFactor;
+            let originalWidth = parseInt(svgElem.getAttribute('width') || '0', 10);
+            let originalHeight = parseInt(svgElem.getAttribute('height') || '0', 10);
 
             /** No width or no height on the SVG: set it from the viewBox  */
-            if ((!glyphWidth || !glyphHeight) && viewBox) {
+            if ((!originalWidth || !originalHeight) && viewBox) {
                 const ratio = viewBox.height / viewBox.width;
-                if (!glyphWidth) glyphWidth = baseWidth * resizeFactor;
-                glyphHeight = Math.ceil(glyphWidth * ratio);
+                if (!originalWidth) originalWidth = baseWidth;
+                originalHeight = Math.ceil(originalWidth * ratio);
             }
-            svgElem.setAttribute('width', `${glyphWidth}px`);
-            svgElem.setAttribute('height', `${glyphHeight}px`);
+            svgElem.setAttribute('width', `${originalWidth * resizeFactor}px`);
+            svgElem.setAttribute('height', `${originalHeight* resizeFactor}px`);
+            return {originalWidth, originalHeight}
         }
 
 
@@ -344,7 +392,7 @@
             zoom: 16,
             transformRequest
         });
-        map.showCollisionBoxes = true;
+        // map.showCollisionBoxes = true;
 
         let originalStyle;
         let labelLayers;
@@ -466,6 +514,7 @@
             const colors = new Set(vessels.features.map(v => v.properties.color));
 
             const sdfCanvas = await svgToSdfCanvas(shipShapeSvg);
+            document.getElementById('canvases').append(sdfCanvas);
             const imageData = sdfCanvas.getContext('2d').getImageData(0, 0, sdfCanvas.width, sdfCanvas.height);
             map.addImage(`vessel`, imageData, { sdf: true });
             map.on('styleimagemissing', (e) => {
