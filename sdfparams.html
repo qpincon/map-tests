@@ -64,6 +64,11 @@
         <label for="resize">Resize</label>
         <span id="resize-value"> </span>
     </div>
+    <div>
+        <input type="range" id="halo-width" name="halo-width" min="0" max="2" value="1" step="0.1" />
+        <label for="halo-width">Halo width</label>
+        <span id="halo-width-value">1 </span>
+    </div>
 
 
     <script>
@@ -80,17 +85,22 @@
         document.getElementById('buffer').addEventListener('click', (e) => generateImage(e));
         document.getElementById('cutoff').addEventListener('click', (e) => generateImage(e));
         document.getElementById('resize').addEventListener('click', (e) => generateImage(e));
+        document.getElementById('halo-width').addEventListener('click', (e) => generateImage(e));
 
         async function generateImage(e) {
             const id = e.target.id;
             const value = e.target.valueAsNumber;
             window[id] = value;
+            document.getElementById(`${id}-value`).innerText = value;
+            if (id==='halo-width') {
+                map.setPaintProperty('vessels', 'icon-halo-width', value);
+                return;
+            }
             map.removeImage('vessel');
             const sdfCanvas = await svgToSdfCanvas(shipShapeSvg);
             document.getElementById('canvases').append(sdfCanvas);
             const imageData = sdfCanvas.getContext('2d').getImageData(0, 0, sdfCanvas.width, sdfCanvas.height);
             map.addImage(`vessel`, imageData, { sdf: true });
-            document.getElementById(`${id}-value`).innerText = value;
             if (id === 'resize') map.setLayoutProperty('vessels', 'icon-size', 1 / resize);
         }
 
@@ -403,11 +413,12 @@
             },
             'paint': {
                 'icon-color': ['get', 'color'],
+                'icon-halo-blur': 0,
                 'icon-halo-color': [
                     "case",
                     ['boolean', ['feature-state', 'hover'], false],
-                    "#ffffff",
-                    "#424242",
+                    "white",
+                    "black",
                 ],
                 'text-color': '#035785',
                 'text-halo-color': '#ffffff',
