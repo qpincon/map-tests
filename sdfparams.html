@@ -69,6 +69,11 @@
         <span id="resize-value"> 1</span>
     </div>
     <div>
+        <input type="range" id="padding" name="padding" min="1" max="20" value="5" step="1" />
+        <label for="padding">Output additionnal size</label>
+        <span id="padding-value"> 5</span>
+    </div>
+    <div>
         <input type="range" id="halo-width" name="halo-width" min="0" max="3" value="1" step="0.1" />
         <label for="halo-width">Halo width</label>
         <span id="halo-width-value">1 </span>
@@ -78,12 +83,24 @@
         <label for="map-resize">Use maplibre resize (if false, canvas resize)</label>
     </div>
 
+    <label for="icon">Choose a SVG icon:</label>
+    <input type="file" id="icon" name="icon" accept="image/svg" />
+
 
     <script>
+        const shipShapeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="8"  viewBox="-3 -8 6 12">
+  <path
+    d="M0,-8L3,0L3,4L0,1L-3,4L-3,0L0,-8" />
+</svg>
+`;      
+
         buffer = 4;
         radius = 8;
         cutoff = 0.15;
         resize = 1;
+        padding = 5;
+        currentSvgIcon = shipShapeSvg;
+        
         let map = null;
         const DOM_PARSER = new DOMParser();
         const INF = 1e20;
@@ -93,6 +110,7 @@
         document.getElementById('buffer').addEventListener('click', (e) => generateImage(e));
         document.getElementById('cutoff').addEventListener('click', (e) => generateImage(e));
         document.getElementById('resize').addEventListener('click', (e) => generateImage(e));
+        document.getElementById('padding').addEventListener('click', (e) => generateImage(e));
         document.getElementById('halo-width').addEventListener('click', (e) => generateImage(e));
         document.getElementById('map-resize').addEventListener('click', (e) => generateImage(e));
 
@@ -100,28 +118,53 @@
         document.getElementById('buffer').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('cutoff').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('resize').addEventListener('keyup', (e) => generateImage(e));
+        document.getElementById('padding').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('halo-width').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('map-resize').addEventListener('keyup', (e) => generateImage(e));
+        document.getElementById('icon').addEventListener('change', async (e) => {
+            const file = e.target.files.item(0)
+            const text = await file.text();
+            currentSvgIcon = text;
+            generateImage()
+        });
 
+        const MIN_ZOOM_RESIZE = 0.7;
+        const iconSize = [
+            'interpolate',
+            ['linear'],
+            ['zoom'],
+            2,
+            MIN_ZOOM_RESIZE ,
+            7,
+            1 ,
+        ];
         async function generateImage(e) {
-            const id = e.target.id;
-            const value = id === "map-resize" ? e.target.checked: e.target.valueAsNumber;
-            console.log(id, value)
-            window[id] = value;
-            if (document.getElementById(`${id}-value`)) document.getElementById(`${id}-value`).innerText = value;
-            if (id==='halo-width') {
-                map.setPaintProperty('vessels', 'icon-halo-width', value);
-                return;
+            if(e) {
+                const id = e.target.id;
+                const value = id === "map-resize" ? e.target.checked: e.target.valueAsNumber;
+                console.log(id, value)
+                window[id] = value;
+                if (document.getElementById(`${id}-value`)) document.getElementById(`${id}-value`).innerText = value;
+                if (id==='halo-width') {
+                    map.setPaintProperty('vessels', 'icon-halo-width', value);
+                    return;
+                }
             }
             map.removeImage('vessel');
-            const sdfCanvas = await svgToSdfCanvas(shipShapeSvg);
+            const sdfCanvas = await svgToSdfCanvas(currentSvgIcon);
             document.getElementById('canvases').append(sdfCanvas);
             // console.log('sdfCanvas=', sdfCanvas);
             const imageData = sdfCanvas.getContext('2d').getImageData(0, 0, sdfCanvas.width, sdfCanvas.height);
             map.addImage(`vessel`, imageData, { sdf: true });
-            console.log(id, value);
-            if (window['map-resize'] === true) map.setLayoutProperty('vessels', 'icon-size', 1 / window['resize']);
-            else map.setLayoutProperty('vessels', 'icon-size', 1);
+            if (window['map-resize'] === true){
+                iconSize[4] = MIN_ZOOM_RESIZE * (1 / resize);
+                iconSize[6] = 1 / resize;
+            } else {
+                iconSize[4] = MIN_ZOOM_RESIZE;
+                iconSize[6] = 1;
+
+            }
+            map.setLayoutProperty('vessels', 'icon-size', iconSize);
         }
 
         function svgToSdfCanvas(svgString) {
@@ -199,7 +242,6 @@
                         canvas.classList.add('resized');
                         document.getElementById('canvases').append(canvas);
                         const scaledDownCanvas = document.createElement('canvas');
-                        const padding = 4;
                         scaledDownCanvas.width = originalWidth + padding;
                         scaledDownCanvas.height = originalHeight + padding;
                         pica().resize(canvas, scaledDownCanvas).then((res)=>{
@@ -416,11 +458,7 @@
         const activityStatusToColor = {};
         const offscreen = new OffscreenCanvas(8, 14);
         const offContext = offscreen.getContext('2d');
-        const shipShapeSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="8"  viewBox="-3 -8 6 12">
-  <path
-    d="M0,-8L3,0L3,4L0,1L-3,4L-3,0L0,-8" />
-</svg>
-`;
+        
 
         function randomColor() {
             return '#' + (Math.random() * 0xFFFFFF << 0).toString(16);
@@ -444,13 +482,8 @@
                 'icon-image': 'vessel',
                 'icon-rotate': ['get', 'angle'],
                 'icon-overlap': 'always',
-                'icon-size': 1,
+                'icon-size': iconSize,
                 "icon-padding": 0,
-                // "icon-size": [
-                //     'interpolate', ['linear'], ['zoom'],
-                //     5, 0.5,
-                //     10, 1
-                // ],
                 'text-overlap': 'never',
                 'text-variable-anchor-offset': ['top', [0, 1], 'bottom', [0, -2], 'left', [1, 0], 'right', [-2, 0]],
                 'text-field': ['get', 'name'],
@@ -513,7 +546,7 @@
             vessels.features.forEach(v => (v.properties.name = generateName()));
             const colors = new Set(vessels.features.map(v => v.properties.color));
 
-            const sdfCanvas = await svgToSdfCanvas(shipShapeSvg);
+            const sdfCanvas = await svgToSdfCanvas(currentSvgIcon);
             document.getElementById('canvases').append(sdfCanvas);
             const imageData = sdfCanvas.getContext('2d').getImageData(0, 0, sdfCanvas.width, sdfCanvas.height);
             map.addImage(`vessel`, imageData, { sdf: true });
@@ -538,39 +571,8 @@
 
             });
 
-            function onVesselHover() {
-                console.log('onVesselHover', hoveredFeatures);
-                if (!hoveredFeatures) return;
-                if (hoveredStateId) {
-                    map.setFeatureState(
-                        { source: 'vessels', id: hoveredStateId },
-                        { hover: false }
-                    );
-                }
-                hoveredStateId = hoveredFeatures[0].id;
-                map.setFeatureState(
-                    { source: 'vessels', id: hoveredStateId },
-                    { hover: true }
-                );
-            }
-
-            function onVesselMouseOut(e) {
-                console.log('onVesselMouseOut', e)
-                // map.getCanvas().style.cursor = '';
-                if (hoveredStateId) {
-                    map.setFeatureState(
-                        { source: 'vessels', id: hoveredStateId },
-                        { hover: false }
-                    );
-                }
-                hoveredFeatures = null;
-                hoveredStateId = null;
-            }
-            console.log('setting listeners');
-
             map.on('mousemove', 'vessels', (e) => {
 
-                console.log(e);
                 // console.log('maplibre vessels mouseover', e.features);
 
                 map.getCanvas().style.cursor = 'pointer';
@@ -587,7 +589,6 @@
                         );
                     }
                     hoveredStateId = hoveredFeatures[0].id;
-                    console.log(hoveredStateId);
                     map.setFeatureState(
                         { source: 'vessels', id: hoveredStateId },
                         { hover: true }
