@@ -64,12 +64,17 @@
         <span id="cutoff-value"> 0.15</span>
     </div>
     <div>
-        <input type="range" id="resize" name="resize" min="1" max="8" value="1" step="1" />
+        <input type="range" id="resize" name="resize" min="1" max="15" value="1" step="1" />
         <label for="resize">Resize</label>
         <span id="resize-value"> 1</span>
     </div>
     <div>
-        <input type="range" id="padding" name="padding" min="1" max="20" value="5" step="1" />
+        <input type="range" id="original-size" name="original-size" min="1" max="20" value="15" step="1" />
+        <label for="original-size">Original size</label>
+        <span id="original-size-value"> 15</span>
+    </div>
+    <div>
+        <input type="range" id="padding" name="padding" min="0" max="20" value="5" step="1" />
         <label for="padding">Output additionnal size</label>
         <span id="padding-value"> 5</span>
     </div>
@@ -78,10 +83,10 @@
         <label for="halo-width">Halo width</label>
         <span id="halo-width-value">1 </span>
     </div>
-    <div>
+    <!-- <div>
         <input type="checkbox" id="map-resize" name="map-resize" />
         <label for="map-resize">Use maplibre resize (if false, canvas resize)</label>
-    </div>
+    </div> -->
 
     <label for="icon">Choose a SVG icon:</label>
     <input type="file" id="icon" name="icon" accept="image/svg" />
@@ -112,7 +117,8 @@
         document.getElementById('resize').addEventListener('click', (e) => generateImage(e));
         document.getElementById('padding').addEventListener('click', (e) => generateImage(e));
         document.getElementById('halo-width').addEventListener('click', (e) => generateImage(e));
-        document.getElementById('map-resize').addEventListener('click', (e) => generateImage(e));
+        // document.getElementById('map-resize').addEventListener('click', (e) => generateImage(e));
+        document.getElementById('original-size').addEventListener('click', (e) => generateImage(e));
 
         document.getElementById('radius').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('buffer').addEventListener('keyup', (e) => generateImage(e));
@@ -120,11 +126,16 @@
         document.getElementById('resize').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('padding').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('halo-width').addEventListener('keyup', (e) => generateImage(e));
-        document.getElementById('map-resize').addEventListener('keyup', (e) => generateImage(e));
+        document.getElementById('original-size').addEventListener('keyup', (e) => generateImage(e));
+        // document.getElementById('map-resize').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('icon').addEventListener('change', async (e) => {
             const file = e.target.files.item(0)
             const text = await file.text();
             currentSvgIcon = text;
+            const svgElem = DOM_PARSER.parseFromString(currentSvgIcon, 'application/xml').firstElementChild;
+            window['original-size'] = parseInt(svgElem.getAttribute('width') || '0', 10) || 10;
+            document.getElementById('original-size').value = window['original-size'];
+            document.getElementById('original-size-value').innerHTML = window['original-size'];
             generateImage()
         });
 
@@ -170,6 +181,7 @@
         function svgToSdfCanvas(svgString) {
             const svg = document.createElement('img');
             const svgElem = DOM_PARSER.parseFromString(svgString, 'application/xml').firstElementChild;
+            svgElem.setAttribute('width', window['original-size']);
             /** SDF icon generation works better on large icons, later scaled down */
             const {originalHeight, originalWidth}=  setSvgDimensionsBasedOnViewBox(svgElem, BASE_WIDTH, resize);
             const glyphWidth = parseInt(svgElem.getAttribute('width'), 10);
