@@ -44,6 +44,13 @@
 </head>
 
 <body>
+    <svg id="erode-container" xmlns="http://www.w3.org/2000/svg" height="0" width="0">
+        <defs>
+            <filter id="erodeFilter">
+                <feMorphology operator="erode" radius="0.1" />
+          </filter>
+        </defs>
+    </svg>
     <div id="toprow">
         <div id="map"></div>
         <div id="canvases"></div>
@@ -87,6 +94,10 @@
         <input type="checkbox" id="map-resize" name="map-resize" />
         <label for="map-resize">Use maplibre resize (if false, canvas resize)</label>
     </div> -->
+    <div>
+        <input type="checkbox" id="erode" name="erode" />
+        <label for="erode">Use erode</label>
+    </div>
 
     <label for="icon">Choose a SVG icon:</label>
     <input type="file" id="icon" name="icon" accept="image/svg" />
@@ -99,15 +110,16 @@
 </svg>
 `;      
 
+        const DOM_PARSER = new DOMParser();
         buffer = 4;
         radius = 8;
         cutoff = 0.15;
         resize = 1;
         padding = 5;
         currentSvgIcon = shipShapeSvg;
+        erode= false;
         
         let map = null;
-        const DOM_PARSER = new DOMParser();
         const INF = 1e20;
         const BASE_WIDTH = 15;
 
@@ -118,6 +130,7 @@
         document.getElementById('padding').addEventListener('click', (e) => generateImage(e));
         document.getElementById('halo-width').addEventListener('click', (e) => generateImage(e));
         // document.getElementById('map-resize').addEventListener('click', (e) => generateImage(e));
+        document.getElementById('erode').addEventListener('click', (e) => generateImage(e));
         document.getElementById('original-size').addEventListener('click', (e) => generateImage(e));
 
         document.getElementById('radius').addEventListener('keyup', (e) => generateImage(e));
@@ -134,6 +147,9 @@
             currentSvgIcon = text;
             const svgElem = DOM_PARSER.parseFromString(currentSvgIcon, 'application/xml').firstElementChild;
             window['original-size'] = parseInt(svgElem.getAttribute('width') || '0', 10) || 10;
+            // const toInsertInDom = svgElem.cloneNode(true);
+            // toInsertInDom.style.transform = "scale(6)";
+            // document.body.append(toInsertInDom);
             document.getElementById('original-size').value = window['original-size'];
             document.getElementById('original-size-value').innerHTML = window['original-size'];
             generateImage()
@@ -152,7 +168,7 @@
         async function generateImage(e) {
             if(e) {
                 const id = e.target.id;
-                const value = id === "map-resize" ? e.target.checked: e.target.valueAsNumber;
+                const value = (id === "map-resize" || id === "erode") ? e.target.checked: e.target.valueAsNumber;
                 console.log(id, value)
                 window[id] = value;
                 if (document.getElementById(`${id}-value`)) document.getElementById(`${id}-value`).innerText = value;
@@ -181,6 +197,14 @@
         function svgToSdfCanvas(svgString) {
             const svg = document.createElement('img');
             const svgElem = DOM_PARSER.parseFromString(svgString, 'application/xml').firstElementChild;
+            if (erode) {
+                const erode = document.getElementById('erode-container').firstElementChild;
+                svgElem.append(erode.cloneNode(true));
+    
+                svgElem.querySelectorAll('path').forEach(p => {
+                    p.setAttribute('filter', `url(#erodeFilter)`)
+                });
+            }
             svgElem.setAttribute('width', window['original-size']);
             /** SDF icon generation works better on large icons, later scaled down */
             const {originalHeight, originalWidth}=  setSvgDimensionsBasedOnViewBox(svgElem, BASE_WIDTH, resize);
@@ -263,7 +287,6 @@
                     }
                 };
             });
-
             svg.src = encodeSVGDataImage(svgElem.outerHTML);
             return promise;
         }
