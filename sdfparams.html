@@ -44,13 +44,6 @@
 </head>
 
 <body>
-    <svg id="erode-container" xmlns="http://www.w3.org/2000/svg" height="0" width="0">
-        <defs>
-            <filter id="erodeFilter">
-                <feMorphology operator="erode" radius="0.1" />
-          </filter>
-        </defs>
-    </svg>
     <div id="toprow">
         <div id="map"></div>
         <div id="canvases"></div>
@@ -66,7 +59,7 @@
         <span id="radius-value"> 8</span>
     </div>
     <div>
-        <input type="range" id="cutoff" name="cutoff" min="0" max="1" value="0.15" step="any" />
+        <input type="range" id="cutoff" name="cutoff" min="0" max="1" value="0.15" step="0.01" />
         <label for="cutoff">Cutoff</label>
         <span id="cutoff-value"> 0.15</span>
     </div>
@@ -94,13 +87,20 @@
         <input type="checkbox" id="map-resize" name="map-resize" />
         <label for="map-resize">Use maplibre resize (if false, canvas resize)</label>
     </div> -->
-    <div>
+    <!-- <div>
         <input type="checkbox" id="erode" name="erode" />
         <label for="erode">Use erode</label>
-    </div>
+    </div> -->
+    <!-- <div>
+        <input type="range" id="erode-width" name="erode-width" min="0" max="15" value="0" step="1" />
+        <label for="erode-width">Erode width</label>
+        <span id="erode-width-value">0 </span>
+    </div> -->
 
     <label for="icon">Choose a SVG icon:</label>
     <input type="file" id="icon" name="icon" accept="image/svg" />
+
+    <button id="exportSvg"> Export SVG </button>
 
 
     <script>
@@ -117,7 +117,9 @@
         resize = 1;
         padding = 5;
         currentSvgIcon = shipShapeSvg;
-        erode= false;
+        window['erode-width'] = 1;
+        window['original-size'] = 8;
+        fileName = 'ship.svg';
         
         let map = null;
         const INF = 1e20;
@@ -130,7 +132,7 @@
         document.getElementById('padding').addEventListener('click', (e) => generateImage(e));
         document.getElementById('halo-width').addEventListener('click', (e) => generateImage(e));
         // document.getElementById('map-resize').addEventListener('click', (e) => generateImage(e));
-        document.getElementById('erode').addEventListener('click', (e) => generateImage(e));
+        // document.getElementById('erode-width').addEventListener('click', (e) => generateImage(e));
         document.getElementById('original-size').addEventListener('click', (e) => generateImage(e));
 
         document.getElementById('radius').addEventListener('keyup', (e) => generateImage(e));
@@ -139,10 +141,12 @@
         document.getElementById('resize').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('padding').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('halo-width').addEventListener('keyup', (e) => generateImage(e));
+        // document.getElementById('erode-width').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('original-size').addEventListener('keyup', (e) => generateImage(e));
         // document.getElementById('map-resize').addEventListener('keyup', (e) => generateImage(e));
         document.getElementById('icon').addEventListener('change', async (e) => {
-            const file = e.target.files.item(0)
+            const file = e.target.files.item(0);
+            fileName = file.name;
             const text = await file.text();
             currentSvgIcon = text;
             const svgElem = DOM_PARSER.parseFromString(currentSvgIcon, 'application/xml').firstElementChild;
@@ -153,6 +157,19 @@
             document.getElementById('original-size').value = window['original-size'];
             document.getElementById('original-size-value').innerHTML = window['original-size'];
             generateImage()
+        });
+
+        document.getElementById('exportSvg').addEventListener('click', () => {
+            const svgElem = DOM_PARSER.parseFromString(currentSvgIcon, 'application/xml').firstElementChild;
+            svgElem.setAttribute('sdf-gen-radius', window['radius']);
+            svgElem.setAttribute('sdf-gen-buffer', window['buffer']);
+            svgElem.setAttribute('sdf-gen-cutoff', window['cutoff']);
+            svgElem.setAttribute('sdf-gen-resize', window['resize']);
+            svgElem.setAttribute('sdf-gen-extra-size', window['padding']);
+            console.log(window['original-size'])
+            svgElem.setAttribute('width', window['original-size']);
+            console.log(svgElem.outerHTML);
+            download(svgElem.outerHTML, 'image/svg+xml', fileName)
         });
 
         const MIN_ZOOM_RESIZE = 0.7;
@@ -168,7 +185,7 @@
         async function generateImage(e) {
             if(e) {
                 const id = e.target.id;
-                const value = (id === "map-resize" || id === "erode") ? e.target.checked: e.target.valueAsNumber;
+                const value = (id === "map-resize") ? e.target.checked: e.target.valueAsNumber;
                 console.log(id, value)
                 window[id] = value;
                 if (document.getElementById(`${id}-value`)) document.getElementById(`${id}-value`).innerText = value;
@@ -197,14 +214,6 @@
         function svgToSdfCanvas(svgString) {
             const svg = document.createElement('img');
             const svgElem = DOM_PARSER.parseFromString(svgString, 'application/xml').firstElementChild;
-            if (erode) {
-                const erode = document.getElementById('erode-container').firstElementChild;
-                svgElem.append(erode.cloneNode(true));
-    
-                svgElem.querySelectorAll('path').forEach(p => {
-                    p.setAttribute('filter', `url(#erodeFilter)`)
-                });
-            }
             svgElem.setAttribute('width', window['original-size']);
             /** SDF icon generation works better on large icons, later scaled down */
             const {originalHeight, originalWidth}=  setSvgDimensionsBasedOnViewBox(svgElem, BASE_WIDTH, resize);
@@ -225,7 +234,11 @@
 
                     /** Draw image on canvas to access image data */
                     ctx.drawImage(svg, 0, 0);
-                    const imgData = ctx.getImageData(0, 0, glyphWidth, glyphHeight);
+                    let imgData = ctx.getImageData(0, 0, glyphWidth, glyphHeight);
+                    
+                    if (window['erode-width'] > 0) {
+                        imgData = erosionFilter(imgData.data, glyphWidth, glyphHeight, window['erode-width']);
+                    }
                     gridOuter.fill(INF, 0, len);
                     gridInner.fill(0, 0, len);
 
@@ -385,6 +398,53 @@
             for (let x = x0; x < x0 + width; x++) edt1d(data, y0 * gridSize + x, gridSize, height, f, v, z);
             for (let y = y0; y < y0 + height; y++) edt1d(data, y * gridSize + x0, 1, width, f, v, z);
         }
+
+        function erosionFilter(imageData, imageWidth, imageHeight, erosionSize) {
+            /** Only look at alpha channel */
+            const alphaOnly = new Uint8ClampedArray(imageData.length / 4);
+            for (let i = 0; i < alphaOnly.length; ++i) {
+                alphaOnly[i] = imageData[3 + (i*4)]
+            }
+
+            const erodedImageData = new Uint8ClampedArray(alphaOnly.length);
+
+            for (let y = erosionSize; y < imageHeight - erosionSize; y++) {
+                for (let x = erosionSize; x < imageWidth - erosionSize; x++) {
+                    let min = 255;
+                    for (let j = -erosionSize; j <= erosionSize; j++) {
+                        for (let i = -erosionSize; i <= erosionSize; i++) {
+                            const value = alphaOnly[(y + j) * imageWidth + (x + i)];
+                            min = Math.min(value, min);
+                        }
+                    }
+                    erodedImageData[y * imageWidth + x] = min;
+                }
+            }
+
+            const eroded4channels = new Uint8ClampedArray(imageData.length);
+            for (let i = 0; i < erodedImageData.length; ++i) {
+                eroded4channels[3 + (i*4)] = erodedImageData[i];
+            }
+            return new ImageData(eroded4channels, imageWidth, imageHeight);
+        }
+
+        function drawImgData(imgData, width, height) {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.putImageData(imgData, 0, 0);
+            document.getElementById('canvases').append(canvas);
+        }
+        function download(content, mimeType, filename){
+            const a = document.createElement('a') // Create "a" element
+            const blob = new Blob([content], {type: mimeType}) // Create a blob (file-like object)
+            const url = URL.createObjectURL(blob) // Create an object URL from blob
+            a.setAttribute('href', url) // Set "a" element link
+            a.setAttribute('download', filename) // Set download filename
+            a.click() // Start downloading
+        }
+
 
 
         function isMapboxURL(url) {
@@ -585,9 +645,6 @@
             document.getElementById('canvases').append(sdfCanvas);
             const imageData = sdfCanvas.getContext('2d').getImageData(0, 0, sdfCanvas.width, sdfCanvas.height);
             map.addImage(`vessel`, imageData, { sdf: true });
-            map.on('styleimagemissing', (e) => {
-                console.log(e);
-            });
 
             map.on('load', () => {
                 map.addSource('vessels', {
